@@ -29,7 +29,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from nightglass.config import BBox
+from nightglass.config import BBox, settings
 from nightglass.schemas import Claim, CorrelationResult, Detection, Match, Scene
 from nightglass.tools.intrep import (
     DETECTOR_PRECISION_VALIDATED,
@@ -305,6 +305,129 @@ def test_scrub_splits_claims_and_keeps_the_supported_ones():
     kept, removed = scrub_rate_claims(claims)
     assert [c.text for c in kept] == [claims[0].text]
     assert [c.text for c in removed] == [claims[1].text]
+
+
+# -- "no feed to search" is not "searched and found nothing" -----------------
+
+
+def _no_matches(n_detections: int = 3) -> CorrelationResult:
+    """What `correlate` returns when no AIS was loaded: detections, no verdicts."""
+    return CorrelationResult(
+        aoi_name="lisbon",
+        bbox=[-10.5, 38.0, -8.5, 39.5],
+        start=datetime(2026, 6, 13, tzinfo=UTC),
+        end=datetime(2026, 6, 14, tzinfo=UTC),
+        scenes=[
+            Scene(
+                id="s",
+                acquisition_time=datetime(2026, 6, 13, 6, 43, tzinfo=UTC),
+                mode="IW",
+                polarizations=["VH", "VV"],
+                footprint_wkt="POLYGON((-10 38, -9 38, -9 39, -10 39, -10 38))",
+            )
+        ],
+        detections=[
+            Detection(id=f"s:det_{i:05d}", scene_id="s", lon=-9.5, lat=38.5, length_m=90.0)
+            for i in range(n_detections)
+        ],
+        matches=[],
+    )
+
+
+def test_a_feed_with_no_positions_is_not_loaded():
+    from nightglass.tools.spatial import Feed
+
+    assert not Feed("none loaded", False, 0).loaded
+    assert Feed("dma", True, 38_239).loaded
+    # One position is a feed. Sparsity is the rate guard's problem, not this
+    # one's — a threshold here would be a judgement call with nothing behind it.
+    assert Feed("aisstream", False, 1).loaded
+
+
+def test_no_ais_produces_no_matches_rather_than_dark_ones():
+    c = _no_matches()
+    assert c.detections
+    assert c.matches == []
+    assert c.dark == [], "an unassessed detection must never appear as dark"
+    assert not c.rate_is_quotable
+
+
+def test_the_intrep_says_nothing_was_assessed():
+    from nightglass.tools.intrep import _T, _caveats
+
+    c = _no_matches(n_detections=133)
+    caveats = _caveats(
+        c,
+        rate_verdict(c),
+        _T["en"],
+        "en",
+        dropped_rates=[],
+        narrative_failed=None,
+        chunks=[],
+    )
+    assessed = [x for x in caveats if "has been assessed against AIS" in x]
+    assert len(assessed) == 1
+    assert "133 detection(s)" in assessed[0]
+    assert "not dark detections" in assessed[0]
+    # And it comes before the rate caveat: a reader who learns nothing was
+    # assessed does not need to be told the rate is unquotable first.
+    assert caveats.index(assessed[0]) < next(
+        i for i, x in enumerate(caveats) if x.startswith(_T["en"]["no_rate"].strip()[:20])
+    )
+
+
+def test_the_no_ais_caveat_is_localised():
+    from nightglass.tools.intrep import _T, _caveats
+
+    c = _no_matches()
+    caveats = _caveats(
+        c, rate_verdict(c, language="pt"), _T["pt"], "pt",
+        dropped_rates=[], narrative_failed=None, chunks=[],
+    )
+    assert any("não deteções escuras" in x for x in caveats)
+
+
+def test_a_correlation_with_matches_does_not_get_the_no_ais_caveat():
+    from nightglass.tools.intrep import _T, _caveats
+
+    c = _correlation(ground_truth=True)
+    caveats = _caveats(
+        c, rate_verdict(c), _T["en"], "en",
+        dropped_rates=[], narrative_failed=None, chunks=[],
+    )
+    assert not any("has been assessed against AIS" in x for x in caveats)
+
+
+def test_the_remediation_hint_does_not_send_you_after_a_file_that_cannot_exist(monkeypatch):
+    """aisstream has no archive, so `load-ais` is not the fix for a past scene.
+
+    A hint that cannot be followed is worse than none — it costs the reader a
+    search for a recording that was never possible to make.
+    """
+    from nightglass.tools.spatial import _no_ais
+
+    monkeypatch.setenv("AOI_LISBON_BBOX", "-10.5,38.0,-8.5,39.5")
+    monkeypatch.setenv("AOI_LISBON_AIS_SOURCE", "aisstream")
+    # The instance field, not the class: `settings` is a module-level
+    # instance whose aoi_name was resolved at import.
+    monkeypatch.setattr(settings, "aoi_name", "lisbon")
+
+    hint = _no_ais("S1A_test", 11.0)
+    assert "real-time only" in hint
+    assert "load-ais" not in hint
+    assert "kattegat" in hint
+
+
+def test_the_remediation_hint_names_the_command_when_a_file_could_exist(monkeypatch):
+    from nightglass.tools.spatial import _no_ais
+
+    monkeypatch.setenv("AOI_KATTEGAT_BBOX", "10.5,55.5,12.5,57.5")
+    monkeypatch.setenv("AOI_KATTEGAT_AIS_SOURCE", "dma")
+    monkeypatch.setattr(settings, "aoi_name", "kattegat")
+
+    hint = _no_ais("S1D_test", 11.0)
+    assert "nightglass-spatial load-ais" in hint
+    assert "S1D_test" in hint
 
 
 def test_the_caveat_explaining_the_guard_would_not_survive_the_guard():

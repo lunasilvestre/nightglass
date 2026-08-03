@@ -100,20 +100,24 @@ class RateVerdict:
     reasons: list[str] = field(default_factory=list)
 
 
+# Each reason is a complete sentence, capitalised and terminated. They are
+# joined into a caveat and also surfaced individually to the local model, and a
+# fragment that reads fine in a list runs into its neighbour once joined —
+# "…in this report. no detections were matched A precisão…".
 _NO_MATCHES = {
-    "en": "no detections were matched against AIS in this correlation",
-    "pt": "nenhuma deteção foi correspondida com AIS nesta correlação",
+    "en": "No detections were matched against AIS in this correlation.",
+    "pt": "Nenhuma deteção foi correspondida com AIS nesta correlação.",
 }
 _NOT_GROUND_TRUTH = {
     "en": (
-        "the AIS feed ({sources}) is not ground truth, so the denominator is "
+        "The AIS feed ({sources}) is not ground truth, so the denominator is "
         "incomplete and a proportion computed from it would report feed "
-        "sparsity as vessel behaviour"
+        "sparsity as vessel behaviour."
     ),
     "pt": (
-        "a fonte AIS ({sources}) não é ground truth, pelo que o denominador "
+        "A fonte AIS ({sources}) não é ground truth, pelo que o denominador "
         "está incompleto e uma proporção calculada a partir dele reportaria a "
-        "escassez da fonte como comportamento das embarcações"
+        "escassez da fonte como comportamento das embarcações."
     ),
 }
 
@@ -266,6 +270,12 @@ _T = {
             "No supporting documents were retrieved, so this report contains "
             "findings only and no doctrinal assessment."
         ),
+        "no_ais": (
+            "NO AIS was available for this acquisition window, so none of the "
+            "{n} detection(s) above has been assessed against AIS. They are "
+            "detections, not dark detections, and nothing here says whether any "
+            "vessel was transmitting. This report carries no correlation finding."
+        ),
         "draft": (
             "DRAFT — NOT RELEASABLE until reviewed and released at the human gate."
         ),
@@ -327,6 +337,13 @@ _T = {
         "no_docs": (
             "Não foram recuperados documentos de apoio, pelo que este relatório "
             "contém apenas achados e nenhuma apreciação doutrinária."
+        ),
+        "no_ais": (
+            "NÃO havia AIS disponível para esta janela de aquisição, pelo que "
+            "nenhuma das {n} deteção(ões) acima foi avaliada contra AIS. São "
+            "deteções, não deteções escuras, e nada aqui indica se alguma "
+            "embarcação estava a transmitir. Este relatório não contém qualquer "
+            "achado de correlação."
         ),
         "draft": (
             "RASCUNHO — NÃO DIVULGÁVEL até revisão e libertação no controlo humano."
@@ -583,6 +600,12 @@ def _caveats(
     quote one. Running the guard over its own explanation would delete it.
     """
     out = [DARK_IS_A_LEAD_PT if lang == "pt" else DARK_IS_A_LEAD]
+    # First, because it subsumes everything below it: if nothing was assessed,
+    # the reader needs to know that before reading a caveat about rates. An
+    # empty `matches` list beside a non-empty `detections` list otherwise reads
+    # as "nothing was dark", which is the opposite of what it means.
+    if c.detections and not c.matches:
+        out.append(t["no_ais"].format(n=len(c.detections)))
     if not verdict.quotable:
         out.append(t["no_rate"] + " ".join(verdict.reasons))
     if any("dma" in (m.ais_source or "").lower() for m in c.matches):

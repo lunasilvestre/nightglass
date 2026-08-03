@@ -110,11 +110,11 @@ that, which is why its numbers are Danish and `.mcp.json`'s are Portuguese.
 
 ### ⚠️ The demo AOI has no AIS, and that is now M5/M6's critical path
 
-Confirmed over MCP, not inferred: a Lisbon `correlate` returns **133 detections, 133 dark**,
-matched against a feed of `"none loaded"`. The guard handles it honestly — `rate_is_quotable` is
-false, the INTREP states no proportion, and every match names the empty feed rather than
-implying darkness — but *"133 of 133 vessels are dark"* is not a demo, and §6 says the demo runs
-over Portugal.
+Confirmed over MCP, not inferred: a Lisbon `correlate` returns **133 detections and no
+correlation at all** — finding 37 replaced the old `133 dark` with an explicit refusal, so the
+tools now say "these are detections, not dark detections" instead of overstating. That is honest,
+and it is still not a demo: §6 says the recording runs over Portugal, and Portugal currently has
+nothing to correlate against.
 
 Three ways out, in the order they are worth trying:
 
@@ -1741,14 +1741,49 @@ them. `draft_intrep` already works that way — its findings are templated from 
 object, which is why section 4 of `make tool-proof` has the arithmetic right and section 3 does
 not.
 
-### 37. `make_interval(mins => …)` will not take a fractional argument
+### 37. ⭐ "Found nothing" and "there was nothing to look in" are different answers
+
+Over Lisbon, `correlate` returned **133 detections, 133 dark**. The SQL was right — a LEFT JOIN
+against an empty `ais.positions` dutifully reports every detection as unmatched — and the
+statement was false. §3.2's warning is *"if your pipeline reports 40% dark, it's broken"*; this
+was 100%, and it read as a finding about the sea rather than about the database.
+
+The fix is a predicate, not a threshold. `Feed.loaded` asks whether *any* AIS position exists in
+the acquisition window, and the two callers use it differently on purpose:
+
+- **`ais_match` refuses** — a `ToolError`, so an HTTP caller gets 503 with the reason and a model
+  gets told rather than misled.
+- **`correlate` skips and says so** — the 133 detections are real work and are still returned;
+  what is withheld is the matched/dark verdict, because there is nothing to have matched against.
+  The scene's provenance note now opens `DETECTION ONLY`, and `draft_intrep` leads its caveats
+  with *"nenhuma das 133 deteção(ões) foi avaliada contra AIS. São deteções, não deteções
+  escuras."*
+
+The predicate is checked **before** the join rather than inferred from its output, and it is
+deliberately binary: one AIS position counts as a feed. A sparsity *threshold* here would be a
+judgement call with nothing behind it, and thinning is already handled where it belongs — by
+`source_is_ground_truth` and the rate guard.
+
+**The remediation hint is AOI-aware, and that is the part worth copying.** The obvious text —
+"run `nightglass-spatial load-ais`" — is a lie over Portugal, where the configured feed is
+aisstream and aisstream has no archive, so no recording started today can serve a June
+acquisition. A hint that cannot be followed costs the reader a search for a file that was never
+possible to make, so the message branches: `dma` names the command, `aisstream` says why there is
+nothing to load and points at the Danish AOI, `gfw` says it is a reference layer and never an
+input to `ais_match`.
+
+Denmark is unchanged and regression-checked: 60 detections, 45 matched, 15 dark, and the scene
+note now records *"matched against dma — 38,178 AIS positions within ±11 min"*, so a future
+`133 dark` cannot be mistaken for a correlation that ran.
+
+### 38. `make_interval(mins => …)` will not take a fractional argument
 
 Every named argument of `make_interval` is an integer except `secs`, so a window of 11.0 minutes
 fails to resolve the function rather than rounding — `UndefinedFunction`, at runtime, from a
 query that reads fine. `dark_vessels.sql` already took its window in seconds for this reason; the
 new feed-lookup query did not, and found out.
 
-### 38. "Take the newest scene" is the wrong default when granules come in pairs
+### 39. "Take the newest scene" is the wrong default when granules come in pairs
 
 Consecutive granules from one Sentinel-1 pass both clip an AOI — the normal case, not an edge
 one. Over the Kattegat the newer of the two (`…34CE`, 05:24:01) covers **1.50 deg²** of the

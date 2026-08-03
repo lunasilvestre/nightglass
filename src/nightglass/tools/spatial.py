@@ -34,6 +34,7 @@ saying whether it was correlated and, if not, how to select it.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -377,8 +378,13 @@ def ais_match(
         wanted = set(ids)
         out: list[Match] = []
         for scene_id in by_scene:
-            rows, _summary = _dark_rows(db, scene_id, radius_m, time_window_min, correct_azimuth)
             feed = _feed_in_window(db, scene_id, time_window_min)
+            if not feed.loaded:
+                # Checked BEFORE the join, not after. The join would happily
+                # LEFT JOIN against an empty table and return every detection
+                # as 'dark' — correct SQL, and a false statement about the sea.
+                raise ToolError(_no_ais(scene_id, time_window_min))
+            rows, _summary = _dark_rows(db, scene_id, radius_m, time_window_min, correct_azimuth)
             sources = _sources_by_mmsi(db, [r["mmsi"] for r in rows if r["mmsi"]])
             out.extend(
                 _match(r, sources, feed, radius_m, time_window_min, correct_azimuth)
@@ -425,9 +431,25 @@ def _scenes_of(db: psycopg.Connection, ids: list[str]) -> list[str]:
     return list(dict.fromkeys(known[i] for i in ids))
 
 
-def _feed_in_window(
-    db: psycopg.Connection, scene_id: str, window_min: float
-) -> tuple[str, bool]:
+@dataclass(frozen=True)
+class Feed:
+    """What AIS was available to search for one scene's acquisition window.
+
+    `loaded` is the distinction the whole refusal rests on: "we searched a feed
+    and found nothing" and "there was no feed to search" are different
+    statements, and only the first one produces a dark detection.
+    """
+
+    name: str
+    is_ground_truth: bool
+    positions: int
+
+    @property
+    def loaded(self) -> bool:
+        return self.positions > 0
+
+
+def _feed_in_window(db: psycopg.Connection, scene_id: str, window_min: float) -> Feed:
     """Which AIS feed was actually searched, and whether it is ground truth.
 
     A dark detection is dark *against a named feed at a named time*, and a
@@ -448,7 +470,8 @@ def _feed_in_window(
     with db.cursor() as cur:
         cur.execute(
             """
-            SELECT p.source, bool_and(p.is_ground_truth) AS ground_truth
+            SELECT p.source, bool_and(p.is_ground_truth) AS ground_truth,
+                   count(*) AS positions
             FROM ais.positions p
             JOIN stac.scenes s ON s.id = %s
             WHERE p.ts BETWEEN s.acquisition_time - make_interval(secs => %s)
@@ -463,10 +486,57 @@ def _feed_in_window(
         )
         rows = sorted(cur.fetchall(), key=lambda r: r["source"] or "")
     if not rows:
-        return "none loaded", False
+        return Feed("none loaded", False, 0)
     # Mixed feeds are only as trustworthy as their weakest member, so a single
     # non-ground-truth source disqualifies the set rather than averaging with it.
-    return "+".join(r["source"] for r in rows), all(bool(r["ground_truth"]) for r in rows)
+    return Feed(
+        name="+".join(r["source"] for r in rows),
+        is_ground_truth=all(bool(r["ground_truth"]) for r in rows),
+        positions=sum(int(r["positions"]) for r in rows),
+    )
+
+
+def _no_ais(scene_id: str, window_min: float) -> str:
+    """Why matching cannot run here, and what would make it able to.
+
+    Deliberately not "run `make load-ais`" for every AOI, because for the
+    Portuguese one that instruction is a lie: aisstream is a live feed with no
+    archive, so no recording started today can serve a June acquisition. A
+    remediation hint that cannot be followed is worse than none — it sends the
+    reader off to find a file that does not exist.
+    """
+    aoi = settings.aoi
+    lines = [
+        (
+            f"no AIS is loaded for {scene_id} within ±{window_min:g} min of "
+            "acquisition, so no detection in this scene can be assessed against "
+            "AIS. Returning them as 'dark' would report an empty database as an "
+            "empty sea — §3.2's failure mode at its limit."
+        ),
+        (
+            f"This deployment's AOI is {aoi.name!r} and its configured feed is "
+            f"{aoi.ais_source!r}."
+        ),
+    ]
+    if aoi.ais_source == "aisstream":
+        lines.append(
+            "aisstream is real-time only and has no archive, so it cannot serve a "
+            "past acquisition — see CustomerFeedSource. Either correlate a scene "
+            "acquired while a recorder was running, or use the Danish validation "
+            "AOI (NIGHTGLASS_AOI=kattegat), which has point-level DMA AIS on disk."
+        )
+    elif aoi.ais_source == "gfw":
+        lines.append(
+            "GFW publishes detections already matched against AIS upstream, not AIS "
+            "positions, so it is a reference layer for comparing detectors and is "
+            "never an input to ais_match."
+        )
+    else:
+        lines.append(
+            "Load the acquisition window first: "
+            f"`nightglass-spatial load-ais <file> --scene-id {scene_id}`."
+        )
+    return " ".join(lines)
 
 
 def _sources_by_mmsi(db: psycopg.Connection, mmsis: list[str]) -> dict[str, str]:
@@ -488,14 +558,14 @@ def _sources_by_mmsi(db: psycopg.Connection, mmsis: list[str]) -> dict[str, str]
 def _match(
     row: dict[str, Any],
     sources: dict[str, str],
-    feed: tuple[str, bool],
+    feed: Feed,
     radius_m: float,
     window_min: float,
     correct_azimuth: bool,
 ) -> Match:
-    feeds, feed_is_ground_truth = feed
+    feeds = feed.name
     mmsi = row["mmsi"]
-    ground_truth = bool(row["source_is_ground_truth"]) if mmsi else feed_is_ground_truth
+    ground_truth = bool(row["source_is_ground_truth"]) if mmsi else feed.is_ground_truth
     source = sources.get(mmsi, feeds) if mmsi else feeds
 
     if mmsi:
@@ -600,13 +670,24 @@ def correlate(
 
         ranked = _rank(rows, box)
         chosen = _choose_scene(ranked, scene_id)
-        scenes = [_scene(r, note=_scene_note(r, chosen, len(ranked))) for r in ranked]
-
         detections = detect_vessels(chosen["id"], min_length_m, conn=db)
         inside = [d for d in detections if _within(d, box)]
-        matches = ais_match(
-            [d.id for d in inside], int(window), radius, conn=db
+
+        # Detection and assessment fail independently, so they are reported
+        # independently. With no AIS loaded the detections are still real work
+        # and are still returned; what is withheld is the matched/dark verdict,
+        # because there is nothing to have matched against. `ais_match` raises
+        # for a direct caller; here the same predicate is checked first, so this
+        # is a decision rather than a caught exception.
+        feed = _feed_in_window(db, chosen["id"], window)
+        matches = (
+            ais_match([d.id for d in inside], int(window), radius, conn=db)
+            if feed.loaded and inside
+            else []
         )
+        scenes = [
+            _scene(r, note=_scene_note(r, chosen, len(ranked), feed, window)) for r in ranked
+        ]
 
     return CorrelationResult(
         aoi_name=_aoi_label(box, aoi),
@@ -661,13 +742,24 @@ def _choose_scene(rows: list[dict[str, Any]], scene_id: str | None) -> dict[str,
     )
 
 
-def _scene_note(row: dict[str, Any], chosen: dict[str, Any], total: int) -> str:
+def _scene_note(
+    row: dict[str, Any], chosen: dict[str, Any], total: int, feed: Feed, window: float
+) -> str:
     if row["id"] == chosen["id"]:
-        return (
-            "correlated"
+        picked = (
+            ""
             if total == 1
-            else f"correlated — covers most of the requested area of the {total} "
-            "scenes in this window"
+            else f" (covers most of the requested area of the {total} in this window)"
+        )
+        if feed.loaded:
+            return (
+                f"correlated{picked}; matched against {feed.name} — "
+                f"{feed.positions:,} AIS positions within ±{window:g} min"
+            )
+        return (
+            f"DETECTION ONLY{picked}: no AIS was loaded within ±{window:g} min of "
+            "acquisition, so nothing here has been assessed against AIS. These are "
+            "detections, not dark detections."
         )
     return (
         "found by the catalogue search but NOT correlated: correlate reads one "
