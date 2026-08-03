@@ -42,9 +42,34 @@ the precision side. Worth a caveat string on the INTREP.
 - **`ais_match` is real, as SQL** — `spatial/sql/dark_vessels.sql`, and it already returns
   matched *and* dark in one result set so the base rate stays computable. M4's tool wraps
   `db.dark_query`.
-- **`doc_search` is real** from M2.
+- **`doc_search` is real** from M2, and `api/main.py::doc_search` is the pattern the other five
+  endpoints should copy — `asyncio.to_thread` around the blocking client, a 503 with a
+  remediation hint, `response_model` from `schemas.py`.
 - So M4 is `correlate` + `draft_intrep` + the MCP/FastAPI surface. Four of the six already work.
 - **Six granules are catalogued** (`make scenes`), four Portuguese and two Danish.
+
+**The detector generalises — do not re-tune it.** Every threshold was set on one Danish scene,
+so this was the real risk. Run unchanged over a Portuguese granule (S1A, different sea state and
+geometry) it gives 133 detections with CFAR still binding and chips that are plainly vessels.
+Finding 31. If M4 sees odd detector behaviour, suspect the wiring, not the thresholds.
+
+### The shape M4 actually has to get right
+
+`correlate` is not a new algorithm. It is `stac_search → detect_vessels → ais_match` with the
+provenance chain preserved rather than flattened to a count — `CorrelationResult` in
+`schemas.py` already says exactly that, and `dark_query` already returns matched *and* dark in
+one result set. The work is orchestration plus honesty plumbing, not computation.
+
+Two things worth deciding early rather than discovering:
+
+- **Detections are already in PostGIS.** `correlate` should decide whether it re-runs the
+  detector or reads `detect.detections` for a scene that already has a run. §5 says tools are
+  pure functions over the database with no hidden caching that changes results between runs —
+  so "read if a run exists for this scene *with these parameters*, otherwise detect" is the
+  defensible reading, and `detect.runs.parameters` is jsonb precisely so that is checkable.
+- **12 s per scene is fine for a CLI and slow for an MCP call.** Claude Desktop will time out
+  on a multi-scene `correlate`. Either bound it to one scene, or make the tool return the run
+  id and let the client poll — decide before writing the endpoint, not after it hangs.
 
 ### ✅ RESOLVED AT M3 — GFW per-detection `matched` flags exist
 
@@ -57,8 +82,15 @@ points** as MVT, filterable with `filters[0]=matched='false'`. Verified over Lis
 The decisive detail: each feature's `id` is `<granule_id>;<lon>;<lat>`, and that granule
 (`S1A_..._20260613T064316_..._F72E`) is **already on disk**. So the Portuguese cross-check is a
 detection-for-detection comparison against a published layer computed over the *identical*
-granule — not the degraded "GFW saw N here, I saw M" fallback the handoff feared. **This is a
-strong M4/M6 result and it is not yet built.**
+granule — not the degraded "GFW saw N here, I saw M" fallback the handoff feared.
+
+⚠️ **Verified, not built — and it belongs to M6, not to M4.** An earlier draft of this handoff
+called it the top M4 item; that was wrong. GFW is another *detector*, so agreeing with it is
+weaker evidence than the AIS validation already banked over Denmark. Its value is the §6 demo
+and the §8 README claim, so it lands better alongside the recording — and `correlate` (M4) is
+the natural place for the comparison to live, which means building it first would mean building
+it twice. No decay risk: the scenes are 13 Jun 2026, GFW's outage started 3 Jul, and the exact
+endpoint and parameters are recorded above.
 
 Two gotchas: `curl` glob-expands the `[0]` in `datasets[0]=` and silently sends nothing — use
 `curl -g`, the symptom is an empty HTTP status. And `tile/heatmap` 422s without an explicit
@@ -66,18 +98,22 @@ Two gotchas: `curl` glob-expands the `[0]` in `datasets[0]=` and silently sends 
 
 ### Still open, in priority order
 
-1. **Build the GFW comparison.** Everything needed is verified (above) and nothing is written.
-   `GFWDetectionSource` exists as an adapter that deliberately refuses to pose as an AIS feed;
-   it needs a provisioning-time fetcher and a comparison, not a matcher.
-2. **The 25% unmatched rate.** Not a blocker, but it is the number a technical interviewer will
+1. **The 25% unmatched rate.** Not a blocker, but it is the number a technical interviewer will
    push on. The shoreline-buffer sweep in the README shows near-shore detections are unmatched
    at 6:1; separating harbour structures and fixed installations from vessels is the real fix.
+2. **The GFW comparison** — verified and unwritten, but scheduled for M6. See above.
 3. **A genuinely cold `make pull-models`** — unchanged from M2, still only ever run against a
    volume that already held the blobs.
 4. **FastMCP 3.4.5 still accepts `transport="sse"`** — revisit at M4 when Claude Desktop attaches.
+   The stdio path is the one that matters, because it crosses the boundary without opening it:
+   `docker compose exec -T mcp nightglass-mcp stdio`.
 5. **Portuguese AOI still undecided** between Lisbon and Leixões; the coastline fetch already
-   clipped both, so either works with no further provisioning.
+   clipped both, so either works with no further provisioning. The Lisbon scenes are the ones
+   with detections loaded and the ones GFW covers.
 6. **Citation entailment** — unchanged from M2.
+7. **A loop-breaker is still required at M5**, and it was measured during pre-dev, not guessed:
+   fed a tool result that contradicted its request, qwen2.5 re-called `stac_search` four times
+   with tweaked dates instead of advancing. Max-iterations plus a same-tool-same-args detector.
 
 ### ⚠️ Host machine state that is NOT in the repo
 
