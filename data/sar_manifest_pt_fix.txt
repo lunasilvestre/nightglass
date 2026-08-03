@@ -1,0 +1,7 @@
+# CORRECTED Portuguese scenes — cover the actual port approaches (path 125 descending).
+# Supersedes the path-23 scenes in sar_manifest.txt, which sat offshore in the
+# Atlantic and missed the Tagus/Leixoes approaches entirely.
+# TAGUS 2026-06-13T06:43:16 793MB
+https://datapool.asf.alaska.edu/GRD_HD/SA/S1A_IW_GRDH_1SDV_20260613T064316_20260613T064341_064947_082F4F_F72E.zip
+# LEIXOES 2026-06-13T06:42:26 834MB
+https://datapool.asf.alaska.edu/GRD_HD/SA/S1A_IW_GRDH_1SDV_20260613T064226_20260613T064251_064947_082F4F_2264.zip

@@ -1,0 +1,17 @@
+# NIGHTGLASS — SAR download manifest
+# Generated 2026-08-03 from ASF Search. Fire once the Earthdata EULA is accepted.
+# Verify with:  curl -sIL -n --location-trusted <url> -o /dev/null -w '%{http_code}\n'
+
+## DENMARK — validation, 2026-07-17 S1D descending 05:23 UTC
+# 2026-07-17T05:23:24  Sentinel-1D  961 MB  path=168 frame=401
+https://datapool.asf.alaska.edu/GRD_HD/SD/S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13.zip
+# 2026-07-17T05:23:49  Sentinel-1D  876 MB  path=168 frame=406
+https://datapool.asf.alaska.edu/GRD_HD/SD/S1D_IW_GRDH_1SDV_20260717T052349_20260717T052414_003709_006A36_34CE.zip
+
+## PORTUGAL — demo, Lisbon/Tagus, June 2026 descending
+# 2026-06-13T06:50:28  Sentinel-1D  640 MB  path=23 frame=459
+https://datapool.asf.alaska.edu/GRD_HD/SD/S1D_IW_GRDH_1SDV_20260613T065028_20260613T065053_003214_0059AB_09C0.zip
+# 2026-06-13T06:50:53  Sentinel-1D  700 MB  path=23 frame=464
+https://datapool.asf.alaska.edu/GRD_HD/SD/S1D_IW_GRDH_1SDV_20260613T065053_20260613T065118_003214_0059AB_E4C7.zip
+
+# TOTAL: 3.10 GB across 4 granules
