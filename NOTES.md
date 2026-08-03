@@ -23,6 +23,36 @@ If `rag-proof` says nothing is indexed, the Qdrant volume was destroyed — `mak
 make ingest` rebuilds it in about two minutes, and `fetch-corpus` is cached against
 `data/corpus/raw/` so it re-downloads nothing.
 
+### ⚠️ M3's real prerequisites — two things that do not exist yet
+
+Same shape as the corpus problem M2 opened with: name them now rather than discovering them
+halfway through writing a spatial join.
+
+**1. There is no vessel detector.** §M3 says "detections loaded", and there is nothing to load.
+`Detection` exists as a type in `schemas.py` and `detect_vessels` exists as a §5 signature, but
+no code reads a pixel. The spatial join has nothing to join until a detector runs over the VH
+channel of a real granule. Verified: `src/nightglass/` holds `config · schemas · api · mcp ·
+agent · rag` and nothing else.
+
+Two things already established that make this cheaper than it sounds, both from M1:
+- **Read scenes in place — no extraction.** `/vsizip/{zip}/{name}.SAFE/measurement/{vh}.tiff`
+  works on all six granules and saves ~30 GB of unzipping.
+- **Don't hand-parse the geolocation grid.** `rasterio` exposes all 210 GCPs directly via
+  `src.gcps`; `src.crs` is `None` and `src.transform` is identity, both expected for GRD.
+
+**2. The spatial dependencies are not in the enclave image.** `pyproject.toml` has them under
+the `spatial` extra, but the runtime stage installs `.[services]` only — confirmed by importing
+inside the container: rasterio, shapely, pyproj, geopandas and pandas are all missing.
+
+This must be fixed at **build** time, not run time. Inside the enclave there is no package index
+to install from — that is the same trap `make test` hit at M0, which failed with `Temporary
+failure in name resolution` and was correct behaviour from a useless target. One line in
+`docker/Dockerfile`: `.[services]` → `.[services,spatial]`. Expect a slower build; rasterio and
+geopandas pull real wheels.
+
+**PostGIS is ready but empty.** M0's initdb created the extensions (postgis, postgis_topology,
+btree_gist) and the `stac` / `detect` / `ais` schemas. **Zero tables.** The DDL is M3's.
+
 ### What M2 left for M3
 
 - **The corpus is done and does not need revisiting.** 60 documents, 1,814 chunks. Adding a
