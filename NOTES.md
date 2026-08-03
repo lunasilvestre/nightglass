@@ -4,6 +4,94 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
+## → HANDOFF TO M2 (read this first in a fresh session)
+
+**M0 and M1 are done, committed and pushed.** `main` is at `55f98d6`. Everything below is
+state a new session cannot infer from the specs or the code.
+
+### Run this first
+
+```bash
+cd ~/Documents/dev/nightglass
+make preflight          # tells you the truth about the machine in 5 lines
+make up                 # idempotent; the stack may already be running
+make air-gap-proof      # both halves should pass
+```
+
+### ⚠️ Host machine state that is NOT in the repo
+
+- **`ollama.service` is `inactive` but still `enabled`.** It was stopped by hand so the
+  enclave could load a 14B model. **It will come back on the next reboot** and re-pin ~15 GB
+  of the 3090, at which point inference inside the enclave fails. `make preflight` detects
+  this and names the fix. `sudo systemctl disable --now ollama` makes it permanent — not done,
+  because it is Nelson's machine and the host install is a genuine dev convenience.
+- The enclave volumes hold both models already (9.5 GB). Do **not** run `make clean` casually;
+  it destroys them.
+
+### ⚠️ M2's real prerequisite: the document corpus does not exist
+
+`data/` holds SAR and AIS only. **There are zero documents on disk.** EXECUTION_SPEC §3.3 wants
+Copernicus EMS activation reports (EMSR861 and EMSR864 are already familiar), public IMO
+circulars and EU shipping sanctions notices, topped up to 40–60 with short INTREP/INTSUM-style
+memos about the AOI, each marked `UNCLASSIFIED // SYNTHETIC` in header **and** metadata.
+
+Assembling it is host-side work that needs the internet, and it is the first M2 task, not a
+detail to discover halfway through writing the ingest pipeline. Suggested landing spot
+`data/corpus/`, which `.gitignore` already excludes via `data/*`.
+
+Two things already settled, so don't re-litigate them:
+- **bge-m3 is the embedding model and the choice is one-way** — changing it means re-embedding
+  everything. Cross-lingual retrieval is verified: PT↔EN same meaning **0.842**, PT↔unrelated
+  PT **0.283**. A Portuguese query will retrieve an English corpus.
+- **Classification markings must propagate from source document into the report** (§7), so
+  capture them at ingest. `Chunk.classification` already exists in `schemas.py`.
+
+### The single most useful thing to carry into M2
+
+Asked *"o que é uma embarcação escura?"* with no retrieved context, qwen2.5:14b answered that
+it is a boat **"pintado em cores escuras"** — it read the central term of this entire project
+as a description of paint colour. Fluent, confident, domain-wrong.
+
+That is M2's whole argument, as a transcript rather than an assertion, and it is the README's
+before/after: same question, ungrounded vs grounded-with-citations. Beats any retrieval
+hit-rate number. See finding 11.
+
+### Where things live
+
+| what | where |
+|---|---|
+| the enclave, and why it looks like that | `docker-compose.yml` — read the header comment |
+| AOI resolution; the only place a bbox is named | `src/nightglass/config.py` |
+| §5 tool contracts, with provenance attached | `src/nightglass/schemas.py` |
+| what M0/M1 actually proved | `README.md` architecture + air-gap proof sections |
+| gotchas that cost time | findings 8–14 below |
+
+### Open, in priority order
+
+1. **Document corpus** — blocks M2 entirely. See above.
+2. **GFW per-detection `matched` flags** — the public API returned *gridded aggregate counts*,
+   not per-detection records. §3.1 wants unmatched detections specifically. If those flags are
+   only in the paper's BigQuery tables, the Portuguese reference layer degrades to "GFW saw N
+   here, my detector saw M" — still a real cross-check, weaker than the spec assumes.
+   **Resolve early in M3**, not late.
+3. **A genuinely cold `make pull-models`** — it has only ever run against a volume that already
+   held the blobs, so it verified digests rather than downloading. Everything of ours is proven;
+   ollama's downloader is not. Worth one cold run before M6 claims reproducibility.
+4. **FastMCP 3.4.5 still accepts `transport="sse"`**, but `http`/`streamable-http` is the modern
+   path. Revisit at M4 when Claude Desktop attaches for real.
+5. **Portuguese AOI still deliberately undecided** between Lisbon and Leixões — the recorder
+   covers both. Decide after the scenes land, not before.
+
+### Conventions worth keeping
+
+- `make` with no target lists everything.
+- Every milestone's evidence goes in the README; every surprise goes in NOTES.md as a numbered
+  finding. The numbered findings are the study aid, and several of them are interview answers.
+- Run the path a stranger would take, not the one that is fast for you. That is what found the
+  `OLLAMA_HOST` bug (finding 13) — the convenient shortcut worked perfectly and hid it.
+
+---
+
 ## Pre-dev guide run — 2026-08-03
 
 Executed `PRE_DEV_GUIDE.md` §1–§8. Results below, **including corrections to the guide.**
@@ -382,7 +470,10 @@ still a real cross-check, but weaker than the spec assumes. **Resolve this early
 
 ---
 
-## → HANDOFF TO M0 (read this first in a fresh session)
+## → HANDOFF TO M0 — ✅ SUPERSEDED
+
+*M0 and M1 are done. This section is kept for the reasoning it records; the current
+handoff is **→ HANDOFF TO M2** at the top of this file.*
 
 Pre-dev is complete. Everything below is state a new session cannot infer from the specs.
 
