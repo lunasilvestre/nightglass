@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "nightglass": {
+      "type": "stdio",
+      "command": "/usr/bin/docker",
+      "args": [
+        "exec",
+        "-i",
+        "nightglass-mcp",
+        "nightglass-mcp",
+        "stdio"
+      ],
+      "env": {}
+    }
+  }
+}

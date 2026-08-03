@@ -466,6 +466,11 @@ There is no published port, and there could not be: a container on a network dec
 `internal: true` silently gets no host port mapping at all, even if one is written. `docker exec`
 crosses the boundary without opening it, which is the honest way to do it.
 
+That command is committed as `.mcp.json`, so a clone gives Claude Code the tools after one trust
+approval. Verified with a real MCP client — `claude mcp list` reports ✔ Connected, and a headless
+session drove `nightglass_status` and `correlate` over the pipe. `make mcp-tools` speaks the same
+JSON-RPC over the same command without needing a client at all:
+
 ```
 serverInfo   nightglass 0.1.0   protocol 2025-06-18
 tools/list   7
@@ -702,6 +707,7 @@ exists for this mission.
 
 ```
 docker-compose.yml        the enclave — one internal network, no egress
+.mcp.json                 the MCP attach, committed — clone and Claude Code has the tools
 docker/                   application image (runtime · fetcher · dev), postgis init
 scripts/                  preflight, the four proofs, MCP stdio probe, model seeding
 corpus/

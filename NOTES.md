@@ -78,17 +78,57 @@ structurally and never scrubbed.
 - **`make tool-call T=… J='{…}'`** calls any single tool with raw JSON out. When the graph does
   something odd, this answers "was it the tool or the model?" in one command.
 
-### Claude Desktop is configured on this machine
+### The MCP attach is verified — by Claude Code, not by Claude Desktop
 
-`~/.config/Claude/claude_desktop_config.json` now has an `mcpServers.nightglass` entry running
-`/usr/bin/docker exec -i nightglass-mcp nightglass-mcp stdio`. The previous file is backed up
-alongside it as `claude_desktop_config.json.bak-pre-nightglass`. **Desktop only reads that file
-at startup**, so it needs a restart to pick the server up; the transport itself is proven
-independently by `make mcp-tools`, which speaks the same JSON-RPC over the same command.
+**`.mcp.json` is committed at the repo root**, so a clone gives Claude Code the tools with no
+setup: `/usr/bin/docker exec -i nightglass-mcp nightglass-mcp stdio`. Project-scoped servers
+need a one-time trust approval on first `claude` start in the directory — that is correct
+security behaviour, not a fault, and it is why `claude mcp get nightglass` reads
+"⏸ Pending approval" until someone approves it once.
 
-Note that Desktop's *other* MCP servers (Desktop Commander, Filesystem, Context7) come from
-`extensions-installations.json`, not from this file — so an empty-looking `mcpServers` key on a
+Verified with a real MCP client rather than a hand-rolled probe. Added at local scope
+temporarily, `claude mcp list` reported **✔ Connected**, and two headless sessions drove the
+tools end to end:
+
+- `nightglass_status` + `correlate` over a *Danish* bbox → correctly **refused**, and the
+  `ToolError` reached the model intact: "the requested bbox lies outside this deployment's AOI".
+  A better result than a success, because it proves the remediation text survives the transport.
+- `correlate` over the Lisbon bbox → 133 detections, **0 matched, 133 dark**, `ais_source`
+  reading `"none loaded"`, and the two uncorrelated scenes named. See the warning below.
+
+`~/.config/Claude/claude_desktop_config.json` also has an `mcpServers.nightglass` entry (backup
+alongside it as `.bak-pre-nightglass`). Desktop reads that file only at startup and has not been
+restarted, so it is configured-but-unconfirmed; Claude Code is the confirmation, over the same
+command and therefore the same bytes. Desktop's *other* servers come from
+`extensions-installations.json`, not from this file, so an empty-looking `mcpServers` key on a
 fresh machine does not mean the file is unused.
+
+**The MCP surface serves whatever AOI the container has**, which is `lisbon` from `.env` — that
+is §3.1 working as designed, one deployment one AOI. To reach the Danish validation AOI over
+MCP, add `-e NIGHTGLASS_AOI=kattegat` to the `docker exec` args. `make tool-proof` does exactly
+that, which is why its numbers are Danish and `.mcp.json`'s are Portuguese.
+
+### ⚠️ The demo AOI has no AIS, and that is now M5/M6's critical path
+
+Confirmed over MCP, not inferred: a Lisbon `correlate` returns **133 detections, 133 dark**,
+matched against a feed of `"none loaded"`. The guard handles it honestly — `rate_is_quotable` is
+false, the INTREP states no proportion, and every match names the empty feed rather than
+implying darkness — but *"133 of 133 vessels are dark"* is not a demo, and §6 says the demo runs
+over Portugal.
+
+Three ways out, in the order they are worth trying:
+
+1. **Load the aisstream recording**, if the recorder has been running. It is a thinned feed and
+   cannot support a rate, which is already stated as a limitation — but it makes the matcher
+   *visible* over Portugal, which is what the demo needs.
+2. **Use GFW as the reference layer** for the Portuguese scene. Verified retrievable during M3
+   (finding in the M3 handoff, still accurate), and the granule GFW computed over is the one on
+   disk, so it is a detection-for-detection comparison. This is already scheduled for M6.
+3. **Record the demo over Denmark** and accept the divergence from §6. Weakest option: it throws
+   away the two-AOI argument that §3.1 exists to make.
+
+Whichever is chosen, decide it before building the M5 graph, not after — the graph's shape does
+not change, but what the demo *shows* does.
 
 ### Still open, in priority order
 
