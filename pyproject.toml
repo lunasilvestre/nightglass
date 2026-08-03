@@ -37,6 +37,13 @@ spatial = [           # M3
   "geopandas>=1.0",
   "pandas>=2.2",
 ]
+# M3 evidence. A detector nobody can look at is a number nobody should believe:
+# these render the SAR chips, the scene overview and the validation plots that
+# justify the detections, and they run INSIDE the enclave because that is where
+# the pixels are. Agg backend only — no display, no interactivity.
+viz = [
+  "matplotlib>=3.9",
+]
 agent = [             # M5
   "langgraph>=0.2",
   "langchain-core>=0.3",
@@ -50,9 +57,16 @@ dev = [
 nightglass-mcp = "nightglass.mcp.server:main"
 nightglass-agent = "nightglass.agent.main:main"
 nightglass-corpus = "nightglass.rag.cli:main"
+nightglass-spatial = "nightglass.spatial.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# §M3's spatial join lives in .sql files, not in Python strings, because the
+# milestone asks for it "as plain SQL, hand-checked" — and a query you can open
+# and run a CTE at a time is checkable in a way an f-string is not.
+[tool.setuptools.package-data]
+nightglass = ["spatial/sql/*.sql"]
 
 [tool.ruff]
 line-length = 100

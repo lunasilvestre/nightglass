@@ -75,6 +75,15 @@ fetch-corpus:  ## fetch the public half of the document corpus (M2). ~35 MB.
 	$(PROVISION) run --rm corpus-fetcher fetch \
 	  --sources /app/corpus/sources.yaml --out /app/data/corpus $(if $(FORCE),--force,)
 
+.PHONY: fetch-coastline
+fetch-coastline:  ## fetch GSHHG and clip it to the configured AOIs (M3). 149 MB in, ~200 KB out.
+	@echo ">> Runs on the provision network, not the enclave."
+	@echo ">> The detector's data-derived land mask cannot tell a 100 m skerry from a"
+	@echo ">> 100 m hull — see src/nightglass/spatial/coastline.py. This is the fix."
+	@mkdir -p data/coastline
+	$(PROVISION) run --rm coastline-fetcher fetch-coastline \
+	  --out /app/data/coastline $(if $(FORCE),--force,)
+
 ##@ Verification
 
 .PHONY: air-gap-proof
@@ -127,6 +136,48 @@ ask-docs:  ## grounded, cited answer. make ask-docs Q="o que é uma embarcação
 .PHONY: rag-proof
 rag-proof:  ## §M2: same question ungrounded vs grounded, plus the refusal path
 	@scripts/rag-proof.sh
+
+##@ Spatial  (M3)
+
+# The Danish scene and its AIS day. Denmark is the validation AOI (§3.1): it is
+# the only one with free point-level historical AIS, so it is the only place a
+# claim about the matcher can be checked rather than asserted.
+DK_SCENE ?= /app/data/raw/sar/S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13.zip
+DK_AIS   ?= /app/data/interim/ais_kattegat_20260717_0513-0534.csv
+AOI      ?= kattegat
+SPATIAL   = $(COMPOSE) exec -T -e NIGHTGLASS_AOI=$(AOI) api nightglass-spatial
+
+.PHONY: migrate
+migrate:  ## create/refresh the M3 PostGIS schema (add DROP=1 to start clean)
+	$(SPATIAL) migrate $(if $(DROP),--drop,)
+
+.PHONY: scenes
+scenes:  ## catalogue every granule on disk as a STAC item
+	$(SPATIAL) scenes
+
+.PHONY: detect
+detect:  ## run the vessel detector over one granule and load the detections
+	$(SPATIAL) detect $(or $(SCENE),$(DK_SCENE))
+
+.PHONY: load-ais
+load-ais:  ## load AIS for the acquisition window into PostGIS
+	$(SPATIAL) load-ais $(or $(AIS),$(DK_AIS)) --granule $(or $(SCENE),$(DK_SCENE))
+
+.PHONY: dark
+dark:  ## §M3's query — detections with no AIS correspondence
+	$(SPATIAL) dark $(or $(SCENE_ID),$(notdir $(basename $(or $(SCENE),$(DK_SCENE)))))
+
+.PHONY: validate-shift
+validate-shift:  ## measure the azimuth-displacement correction against DMA truth
+	$(SPATIAL) validate-shift $(or $(SCENE),$(DK_SCENE)) $(or $(AIS),$(DK_AIS))
+
+.PHONY: render
+render:  ## chips, scene overview and map view into data/out/
+	$(SPATIAL) render $(or $(SCENE),$(DK_SCENE))
+
+.PHONY: dark-proof
+dark-proof:  ## §M3 end to end: schema, scene, detections, AIS, the query, the evidence
+	@scripts/dark-proof.sh
 
 ##@ Using it
 

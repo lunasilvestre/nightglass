@@ -30,17 +30,31 @@ x-enclave: &enclave
   restart: unless-stopped
   env_file: [.env]
 
-# The document corpus (M2), read-only, into every service that answers questions.
-# Two mounts because the corpus has two halves held differently: `corpus/` is
+# Everything the enclave reads: documents (M2), then granules and AIS (M3).
+#
+# The corpus is two mounts because its halves are held differently: `corpus/` is
 # committed (synthetic memos and the source manifest -- a fresh clone must be
 # able to reproduce the demo), `data/corpus/` is fetched and gitignored (some of
 # it carries no reuse licence). Ingest reads both and cannot tell them apart.
-# Read-only: nothing inside the enclave has any business editing a source
-# document, and a corpus that can be rewritten by the thing citing it is not a
-# corpus.
-x-corpus: &corpus
+#
+# All of it is read-only. Nothing inside the enclave has any business editing a
+# source document, and a corpus that can be rewritten by the thing citing it is
+# not a corpus; the same argument covers a granule, which is evidence. `data/out`
+# is the single writable path, because renders and chips are outputs.
+x-data: &data
   - ./corpus:/app/corpus:ro
   - ./data/corpus:/app/data/corpus:ro
+  # M3. The SAR granules are mounted, never extracted: GDAL reads the
+  # measurement TIFF through /vsizip straight out of the archive, so six scenes
+  # cost 4.7 GB instead of the 33 GB unpacking them would.
+  - ./data/raw/sar:/app/data/raw/sar:ro
+  - ./data/raw/ais:/app/data/raw/ais:ro
+  - ./data/interim:/app/data/interim:ro
+  # The shoreline, clipped to the configured AOIs at provisioning time. Small
+  # (a few hundred KB) because the clipping happened online -- the enclave gets
+  # its AOIs, not the 149 MB planet.
+  - ./data/coastline:/app/data/coastline:ro
+  - ./data/out:/app/data/out
 
 services:
 
@@ -155,7 +169,7 @@ services:
     image: nightglass/app:dev
     container_name: nightglass-api
     command: ["uvicorn", "nightglass.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    volumes: *corpus
+    volumes: *data
     depends_on:
       ollama:  {condition: service_healthy}
       qdrant:  {condition: service_healthy}
@@ -184,7 +198,7 @@ services:
     image: nightglass/app:dev
     container_name: nightglass-mcp
     command: ["nightglass-mcp", "sse", "--host", "0.0.0.0", "--port", "8001"]
-    volumes: *corpus
+    volumes: *data
     depends_on:
       api: {condition: service_healthy}
     healthcheck:
@@ -212,7 +226,7 @@ services:
     container_name: nightglass-agent
     restart: "no"
     entrypoint: ["nightglass-agent"]
-    volumes: *corpus
+    volumes: *data
     depends_on:
       api: {condition: service_healthy}
 
@@ -293,6 +307,35 @@ services:
       - ./corpus:/app/corpus:ro
       - ./data/corpus:/app/data/corpus
     command: ["fetch", "--sources", "/app/corpus/sources.yaml", "--out", "/app/data/corpus"]
+
+  # ---------------------------------------------------------------------------
+  # coastline-fetcher -- provisioning only. NOT part of the enclave.
+  # ---------------------------------------------------------------------------
+  # The fourth and last thing this system needs from the outside world, after
+  # model weights, documents and granules: a real shoreline. GSHHG at full
+  # resolution, because the detector's own data-derived land mask structurally
+  # cannot separate a 100 m skerry from a 100 m hull -- see
+  # src/nightglass/spatial/coastline.py for why that is a property rather than a
+  # tuning failure.
+  #
+  # It downloads 149 MB and writes a few hundred KB: the clip to the configured
+  # AOIs happens HERE, online, so the offline bundle never carries the planet.
+  coastline-fetcher:
+    profiles: ["provision"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: fetcher
+    image: nightglass/fetcher:dev
+    container_name: nightglass-coastline-fetcher
+    networks: [provision]
+    restart: "no"
+    env_file: [.env]
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    entrypoint: ["nightglass-spatial"]
+    volumes:
+      - ./data/coastline:/app/data/coastline
+    command: ["fetch-coastline", "--out", "/app/data/coastline"]
 
 networks:
   # The enclave. `internal: true` is the entire air-gap mechanism -- default

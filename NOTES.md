@@ -4,7 +4,96 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
-## → HANDOFF TO M3 (read this first in a fresh session)
+## → HANDOFF TO M4 (read this first in a fresh session)
+
+**M0–M3 are done.** `make dark-proof` runs the whole spatial chain and is the fastest way to see
+the state of things. Everything below is what a new session cannot infer from the specs or code.
+
+### Run this first
+
+```bash
+cd ~/Documents/dev/nightglass
+make preflight && make up
+make air-gap-proof     # M1
+make rag-proof         # M2
+make dark-proof        # M3 — schema, detector, AIS, the join, the renders
+```
+
+If `dark-proof` refuses with "no coastline", run `make fetch-coastline` — 149 MB down, 713 KB
+kept, and the detector is not trustworthy near shore without it (finding 24).
+
+### ⚠️ What M4 inherits, and the one number to be careful with
+
+**The matcher is validated. The detector's coastal precision is not.** Over the Kattegat:
+45 of 60 detections match real AIS, median distance **119 m**, and recall is **88% for AIS
+vessels ≥ 30 m** (100% at ≥ 200 m). But 25% of detections are unmatched against a published
+base rate of ~5%, and the excess is coastal clutter, not dark vessels.
+
+So when M4 wires `correlate` and M5 drafts an INTREP: **the defensible claim is "here are N
+detections I matched, with the space–time reasoning shown", not a dark-vessel rate.**
+`CorrelationResult.rate_is_quotable` already guards the source side of this; nothing yet guards
+the precision side. Worth a caveat string on the INTREP.
+
+### What already exists and should not be rebuilt
+
+- **`stac_search` is real** — `spatial/db.py::stac_search`, a PostGIS query over `stac.scenes`,
+  which holds each granule as a whole STAC Item in `jsonb`. M4 wraps it; it does not reimplement it.
+- **`detect_vessels` is real** — `spatial/detect.py::detect_scene`. ~12 s per scene over an AOI.
+- **`ais_match` is real, as SQL** — `spatial/sql/dark_vessels.sql`, and it already returns
+  matched *and* dark in one result set so the base rate stays computable. M4's tool wraps
+  `db.dark_query`.
+- **`doc_search` is real** from M2.
+- So M4 is `correlate` + `draft_intrep` + the MCP/FastAPI surface. Four of the six already work.
+- **Six granules are catalogued** (`make scenes`), four Portuguese and two Danish.
+
+### ✅ RESOLVED AT M3 — GFW per-detection `matched` flags exist
+
+Was open item #1, "resolve early in M3". **They are retrievable, and the position is stronger
+than the old note assumed.** `/v3/4wings/report` returns gridded aggregates — that is what the
+earlier probe found — but `/v3/4wings/tile/position/{z}/{x}/{y}` returns **individual detection
+points** as MVT, filterable with `filters[0]=matched='false'`. Verified over Lisbon, z9 tile
+242/196, 2026-06-13: 13 detections = 10 matched + 3 unmatched.
+
+The decisive detail: each feature's `id` is `<granule_id>;<lon>;<lat>`, and that granule
+(`S1A_..._20260613T064316_..._F72E`) is **already on disk**. So the Portuguese cross-check is a
+detection-for-detection comparison against a published layer computed over the *identical*
+granule — not the degraded "GFW saw N here, I saw M" fallback the handoff feared. **This is a
+strong M4/M6 result and it is not yet built.**
+
+Two gotchas: `curl` glob-expands the `[0]` in `datasets[0]=` and silently sends nothing — use
+`curl -g`, the symptom is an empty HTTP status. And `tile/heatmap` 422s without an explicit
+`format=`, while `tile/position` does not.
+
+### Still open, in priority order
+
+1. **Build the GFW comparison.** Everything needed is verified (above) and nothing is written.
+   `GFWDetectionSource` exists as an adapter that deliberately refuses to pose as an AIS feed;
+   it needs a provisioning-time fetcher and a comparison, not a matcher.
+2. **The 25% unmatched rate.** Not a blocker, but it is the number a technical interviewer will
+   push on. The shoreline-buffer sweep in the README shows near-shore detections are unmatched
+   at 6:1; separating harbour structures and fixed installations from vessels is the real fix.
+3. **A genuinely cold `make pull-models`** — unchanged from M2, still only ever run against a
+   volume that already held the blobs.
+4. **FastMCP 3.4.5 still accepts `transport="sse"`** — revisit at M4 when Claude Desktop attaches.
+5. **Portuguese AOI still undecided** between Lisbon and Leixões; the coastline fetch already
+   clipped both, so either works with no further provisioning.
+6. **Citation entailment** — unchanged from M2.
+
+### ⚠️ Host machine state that is NOT in the repo
+
+Unchanged from M2: `ollama.service` is `inactive` but still `enabled` and will come back on the
+next reboot, re-pinning ~15 GB of the 3090. `make preflight` detects it. The enclave volumes hold
+both models (9.5 GB) — do not `make clean` casually.
+
+New at M3: `data/coastline/` holds three clipped GeoJSONs (~900 KB total) and `data/out/` holds
+the rendered evidence. Both are gitignored. `data/out` is `chmod 1777` because the enclave writes
+there as uid 10001 while the host reads as 1000.
+
+---
+
+## → HANDOFF TO M3 — ✅ SUPERSEDED
+
+*M3 is done. Kept for the reasoning it records; the current handoff is above.*
 
 **M0, M1 and M2 are done.** Everything below is state a new session cannot infer from the specs
 or the code.
@@ -1031,6 +1120,212 @@ cites them for, and nothing more.
 
 ---
 
+## M3 — done 2026-08-03. Own detector, real pixels, and a space–time join that holds up.
+
+`make dark-proof` runs it end to end. §M3's "done when" passes: one SQL query returns detections
+with no AIS correspondence inside a space–time window, and it was written and hand-checked as
+plain SQL before any agent touched it.
+
+```
+detections    60      matched 45      dark 15  (25.0%)
+median match distance 119 m       recall 88% on AIS vessels ≥ 30 m
+```
+
+### What M3 built
+
+```
+src/nightglass/spatial/
+  safe.py                 SAFE read in place — annotation, calibration + noise LUTs, GCPs, STAC
+  detect.py               the detector: CFAR, two land masks, region-grown sizing, TPS geolocation
+  geodesy.py              bearings, and the azimuth-displacement physics
+  coastline.py            ONLINE GSHHG fetch + AOI clip; the second land mask
+  ais.py                  source adapters: DMAFileSource · GFWDetectionSource · CustomerFeedSource
+  db.py                   PostGIS access; SQL lives in files
+  sql/001_schema.sql      stac.scenes · detect.runs+detections · ais.positions
+  sql/dark_vessels.sql    §M3's join, readable and runnable on its own
+  render.py · plots.py    chips, overview, map, validation charts
+  validate.py             measure the detector against DMA ground truth
+docker/Dockerfile         .[services,spatial,viz] + libexpat1
+docker-compose.yml        coastline-fetcher; SAR/AIS/coastline mounts, read-only
+scripts/dark-proof.sh     §M3's proof, as a repeatable command
+tests/test_spatial.py     35 tests — LUTs, geodesy, block stats, morphology, AIS parsing
+```
+
+### 21. ⭐ Every bug in the detector was invisible in the numbers and obvious in the first render
+
+This is the finding. Three separate failures, all of which produced a plausible-looking table:
+
+| what the table said | what the picture showed |
+|---|---|
+| 626 detections, sensible length distribution | 82% of the scene "land-masked" — it was processing Sweden, because the AOI bounded rows but not columns |
+| 296 detections, water sigma0 −36.5 dB | salt-and-pepper noise where water should be smooth — `max(DN²−noise, 0)` was clamping half the sea to zero |
+| 186 detections, clean statistics | a continuous string of "vessels" tracing the entire Danish coast |
+
+None of those is detectable from a count, a length histogram, or a spot-check of coordinates.
+All three were unmissable within seconds of looking at a rendered image. So rendering is part of
+the pipeline (`make render`), not a debugging afterthought, and `data/out/` is a mount.
+
+Generalises: **a detector that is only ever counted is a detector nobody has checked.**
+
+### 22. ⭐ The azimuth-displacement sign: derived one way, measured the other, measurement won
+
+The physics is real and large — R/V ≈ 115 s here, so a 12 kn vessel crossing the range direction
+is drawn ~450 m from where it was, most of a 500 m match radius.
+
+The derivation said a receding target is displaced *forward* along the flight path. Measured
+against DMA truth:
+
+| | <100 m | <200 m | <500 m | median |
+|---|---|---|---|---|
+| no correction | 8 | 17 | 43 | 330 m |
+| sign **+1** (derived) | 0 | 3 | 23 | 630 m |
+| sign **−1** (measured) | **19** | **33** | **45** | **173 m** |
+
+The wrong sign is about as far wrong as the right one is right — the signature of a real
+systematic offset applied backwards. The derivation had the processor placing a target at the
+azimuth time whose Doppler *equals* the observed one; it actually focuses at the target's Doppler
+*zero crossing*, which flips the sign.
+
+**The lesson is not the sign. It is that the sign was left as a parameter to be measured**
+(`geodesy.azimuth_displacement_m(..., sign)`), against ground truth, in a command that still
+exists (`make validate-shift`). Had it been baked in as a constant, the pipeline would have run
+happily with double the error and nothing would have said so.
+
+### 23. ⭐ Allowing negative sigma0 fixed one bug and created another — in the same expression
+
+VH over calm sea in this scene is genuinely **below the noise floor**: measured water sigma0
+−29.1 dB against a NESZ of −29.4 dB. So `DN² − noise` is negative for roughly half the water
+pixels, and clamping it at zero turns a well-behaved random field into a half-black binary one.
+Removing the clamp fixed the image.
+
+It immediately broke the CFAR, because the censoring rule was `pixels > censor × block_mean`.
+That assumes a positive mean. With the mean near zero and often slightly negative — the S1 noise
+LUT mildly over-subtracts at VH — `censor × mean` lands at or below zero, the "keep" set
+collapses to the most negative pixels in the block, and the returned standard deviation
+describes the bottom tail rather than the sea. Symptom: **1.2% of open water passing an 8-sigma
+test**, about five orders of magnitude too many.
+
+Fix is one line — censor by *sigmas above the mean*, not by a multiple of the mean — and it is
+sign-agnostic by construction.
+
+Two things made this findable rather than mysterious. The render showed the first half. And the
+two threshold criteria (relative CFAR, absolute NESZ floor) are **counted separately** in the run
+record, so "CFAR passes 565,727 px, NESZ floor passes 42,015" said plainly that the relative test
+had collapsed. A single combined count would have hidden it.
+
+### 24. ⭐ A data-derived land mask cannot separate a skerry from a hull, and that is structural
+
+The mask has to *open* — erode then dilate — before buffering the shore, or every bright vessel
+becomes its own island and the mask deletes exactly what the detector is looking for. Opening
+removes bright objects smaller than the structuring element. **A 100 m rock is a bright object
+smaller than the structuring element.** No threshold moves that trade-off: at VH a wet rock and a
+hull are both compact, bright and small.
+
+It presented exactly as theory predicts — a tidy line of "vessels" down the Swedish archipelago
+off Gothenburg, three to ten kilometres offshore, with almost no AIS anywhere near them.
+
+So the fix is data the scene does not contain: GSHHG full resolution (~100 m), fetched at
+provisioning time and clipped to the AOI. 149 MB downloaded, 713 KB kept. The trade-off is
+measured, not guessed:
+
+| buffer | detections | matched | dark | rate |
+|---|---|---|---|---|
+| 300 m | 71 | 46 | 25 | 35% |
+| **1000 m** | **60** | **45** | **15** | **25%** |
+| 2000 m | 53 | 44 | 9 | 17% |
+| 3000 m | 50 | 43 | 7 | 14% |
+
+300 m → 3 km removes 21 detections: **18 dark, 3 matched.** Coastal detections are overwhelmingly
+not vessels and the buffer costs almost no real ones.
+
+The wider point is the deployment story: weights, documents, granules **and a shoreline** are
+four things an air-gapped system needs shipped with it, not three. Saying so is a better answer
+than pretending the list was shorter.
+
+### 25. A `WHERE` clause silently deleted a third of the ground truth
+
+The dark query filtered `t.cog_deg IS NOT NULL` so the azimuth-displacement trigonometry would
+not see a NULL. **322 of 907 vessels have no COG at all** — they were dropped from ever being
+matched, and every one became a spurious dark detection.
+
+A vessel reports no course precisely when it is moored or drifting, which is exactly when its
+azimuth displacement is zero. So the correct handling is a zero shift and a full chance to match,
+not exclusion. The filter moved from the `WHERE` into a `CASE` on the shift expression.
+
+Generalises: **a `WHERE` clause added to protect a calculation will quietly change the
+population.** The tell was the count — 907 vessels loaded, 621 reaching the join — and nothing
+was printing both.
+
+### 26. Detecting and measuring want different thresholds
+
+Detection needs a high threshold or the scene fills with false alarms. Measurement at that same
+threshold gave lengths with **r = 0.015** against AIS-reported length — not a scale error, *no
+relationship at all*, because at 8 sigma the blob's extent tracks peak brightness rather than
+hull. A median ratio of 0.30× looked like a calibration problem and was not.
+
+Re-growing each accepted detection at 2.5 sigma, seeded from the blob that passed 8, bounded to a
+window, fixed the bias: median ratio **1.15×**. Correlation improved to **r = 0.198**, which is
+still weak — so the honest report is that length is a size band, not a measurement, and the
+README says so.
+
+### 27. `%` in a SQL comment breaks psycopg, and escaping it breaks the file
+
+The join lives in a `.sql` file precisely so it can be opened and run a CTE at a time. Two
+comments contained `~20%` and `~5%`; psycopg scans the whole string for placeholders and failed
+with *"incomplete placeholder: '%'"*. Doubling them to `%%` fixes psycopg and makes the file
+invalid to run directly in `psql` — destroying the property the file exists for. Reworded the
+prose instead.
+
+### 28. rasterio's wheel needs a system library `python:slim` does not ship
+
+`pip install rasterio` succeeds; `import rasterio` then dies with
+`libexpat.so.1: cannot open shared object file`. The manylinux wheel vendors GDAL, PROJ and GEOS
+but still dynamically links the system libexpat.
+
+**A green build is not proof the enclave can read a pixel** — and there is no apt inside the
+enclave to fix it afterwards. `libexpat1` is now in the base stage. Same category as M0's
+`make test` failing on a missing package index: anything the running system needs has to be in
+the image before the network goes away.
+
+### 29. TPS geolocation is exact; a polynomial GCP fit is 185 m out
+
+`rasterio.transform.GCPTransformer(gcps)` defaults to a polynomial fit through the 210 tie
+points. Measured residuals against the tie points themselves:
+
+| | mean | p95 | max |
+|---|---|---|---|
+| polynomial | 40.1 m | 100 m | **185 m** |
+| **TPS** (`tps=True`) | **0.000 m** | 0.000 m | 0.000 m |
+
+The geolocation grid of a 250 km swath is not a polynomial surface. TPS costs 15× more per point
+— 0.15 s per 20,000 points, i.e. nothing — and at a 500 m match radius, 185 m of avoidable error
+is over a third of the budget.
+
+⚠️ Use `offset="ul"`, not the default `offset="center"`. The default adds half a pixel in each
+axis, which showed up as a uniform **7.07 m** (= √2 × 5 m) bias and briefly looked like a real
+geolocation error in the TPS numbers.
+
+### 30. Two chart colours that failed a check my eye had already flagged
+
+The result map drew matched detections in orange and unmatched in red. They were hard to tell
+apart, and the palette validator said why: normal-vision separation **ΔE 7.1 against a floor of
+15** — genuinely hard to distinguish *with full colour vision*, before colour blindness enters
+it. Swapping matched to aqua passes at ΔE 20.9, and unmatched detections also carry a different
+marker shape so identity never rests on colour alone.
+
+Worth the note because the check took ten seconds and the alternative was arguing about taste.
+
+### Performance, for reference
+
+| step | time |
+|---|---|
+| detector over the Kattegat AOI (97 M px examined) | ~12 s |
+| AIS load, 38,239 deduplicated positions via COPY | ~6 s |
+| the dark query | < 1 s |
+| GSHHG fetch + clip for three AOIs | ~90 s, once |
+
+---
+
 ## Decisions
 
 | Decision | Choice | Rationale |
@@ -1045,6 +1340,14 @@ cites them for, and nothing more.
 | **PDF text via poppler `pdftotext`** | native dependency, `fetcher` image stage only | pypdf mangles EUR-Lex Official Journal PDFs: 676 and 114 spurious in-word spaces against 0 for pdftotext (finding 15). Confined to the online stage — the enclave never sees a PDF. |
 | **ICEYE docs at a pinned commit** | `6c42568…`, not the rendered `latest` site | A corpus that cannot be rebuilt byte-for-byte is not reproducible, and the published site moves. `source_url` still points at the human-readable page, which is what a citation should open. |
 | **Refusal by citation verification, not a score floor** | `NIGHTGLASS_RAG_MIN_SCORE` unset | Measured bands are 0.046 apart (finding 19). A threshold set slightly high turns answerable questions into refusals, which is indistinguishable from the feature working. |
+| **Two land masks, not one** | data-derived (fine blocks, opened, buffered) **plus** GSHHG f/L1 clipped to the AOI | The data-derived mask must open before buffering or ships mask themselves; opening removes anything ship-sized, including skerries. Structural, not a tuning failure (finding 24). Buffer default 1000 m from a measured sweep: 300 m → 3 km removes 18 dark detections and 3 matched. |
+| **Azimuth-displacement sign** | **−1**, confirmed by measurement, not by derivation | A receding target is drawn BACKWARD along the flight path. The derivation said forward and was wrong (finding 22). `make validate-shift` re-measures it against DMA truth; median match distance 330 m → 173 m. |
+| **Detect at 8σ, measure at 2.5σ** | two thresholds, region-grown from the detection blob | One threshold cannot do both: at 8σ the blob is superstructure and length correlates with AIS at r = 0.015 (finding 26). Detection keeps its low false-alarm rate; measurement gets a threshold near the clutter tail. |
+| **Sigma0 is NOT clipped at zero** | negative residuals kept | VH over calm sea is below NESZ here, so half the water pixels are legitimately negative. Clamping makes a binary field and destroys the CFAR statistics (finding 23). Censoring is by sigmas above the mean so it works either side of zero. |
+| **TPS georeferencing, `offset="ul"`** | not the default polynomial fit | Polynomial leaves 40 m mean / 185 m worst case through 210 tie points; TPS leaves 0.000 m for 15× a negligible cost (finding 29). |
+| **The dark join is a `.sql` file** | not assembled in Python | §M3 asks for it "as plain SQL, hand-checked". A file that can be opened and run a CTE at a time is checkable; an f-string is not. Forced one real constraint: no bare `%` anywhere, even in comments (finding 27). |
+| **Scene stored as a whole STAC Item** | `jsonb`, with columns extracted beside it for indexing | `stac_search` is a catalogue query; modelling the catalogue as STAC keeps the door open to pointing the same tool at a real STAC API, which is what a customer deployment has. |
+| **`ais.positions` PK is `(mmsi, ts, lat, lon)`** | the dedup rule as a constraint | 71% of raw DMA rows are rebroadcast duplicates. Making the key the rule means the database enforces it rather than the loader remembering to. |
 | **Chunk id = `{doc_id}#{ordinal:04d}`** | positional, not content-hashed | Qdrant point IDs derive from it, so re-ingest updates in place. A content hash would orphan every citation already written down the moment a typo upstream was fixed. |
 
 ### Data on disk
@@ -1072,7 +1375,9 @@ PORTUGAL (demo AOI)
 [x] Portuguese AOI fixed → Lisbon/Tagus -10.5 38.0 → -8.5 39.5
 [x] S1 GRD over Portugal downloaded, VH opens (path 125, covers approaches)
 [x] GFW API token obtained + verified (HTTP 200)
-[ ] gfw_sar_vessel_detections() returns rows              ← check outage
+[x] GFW per-detection records + matched flags → 4wings/tile/position, NOT
+    4wings/report. 13 detections = 10 matched + 3 unmatched over Lisbon
+    2026-06-13, each carrying its source granule id. See finding above.
 
 DENMARK (validation AOI)
 [x] Earthdata + EULA accepted + cookie jar → downloads work (206, PK header)

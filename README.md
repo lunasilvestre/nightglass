@@ -18,11 +18,13 @@ Deliberately shaped as the open-source shadow of ICEYE Ocean Vision Detect.
 > transponder failure, low-power class B sets, vessels never required to carry AIS at all. The
 > system surfaces candidates. The analyst adjudicates.
 
-**Status: M2 — document RAG with citations.** The enclave stands up and is sealed (M0), runs
-inference offline (M1), and now answers questions from a 60-document corpus with every claim
-traced to a retrievable chunk — or refuses when the corpus cannot support one. The spatial layer
-and the remaining five tools of `EXECUTION_SPEC.md` §5 are M3–M4; their contracts are already
-typed in `src/nightglass/schemas.py`. `NOTES.md` is the running decision log.
+**Status: M3 — the spatial layer.** The enclave stands up and is sealed (M0), runs inference
+offline (M1), answers from a 60-document corpus with every claim traced to a retrievable chunk
+or refuses (M2), and now runs its own vessel detector over real Sentinel-1 pixels and correlates
+the detections against real AIS in space *and* time (M3). Over the Danish validation AOI, 45 of
+60 detections match a vessel that was actually there, with **88% recall on AIS vessels ≥ 30 m**.
+The remaining tools of `EXECUTION_SPEC.md` §5 are M4; their contracts are already typed in
+`src/nightglass/schemas.py`. `NOTES.md` is the running decision log.
 
 ---
 
@@ -54,11 +56,11 @@ typed in `src/nightglass/schemas.py`. `NOTES.md` is the running decision log.
    ║          └───────┘         └───────┘  halts at the human gate       ║
    ╚═════════════════════════════════════════════════════════════════════╝
 
-        nightglass_provision ─┬─ model-puller   ──► internet   (profile-gated;
-                              └─ corpus-fetcher ──► internet    the ONLY services
-                                                                with egress, and
-                                                                neither runs during
-                                                                operation)
+        nightglass_provision ─┬─ model-puller      ──► internet  (profile-gated;
+                              ├─ corpus-fetcher    ──► internet   the ONLY services
+                              └─ coastline-fetcher ──► internet   with egress, and
+                                                                  none of them runs
+                                                                  during operation)
 ```
 
 The boundary is one line of `docker-compose.yml`: the `enclave` network is declared
@@ -73,12 +75,18 @@ Two consequences follow, and both are deliberate:
   mapping, and the port is dead — with no warning emitted anywhere. So ports are not merely
   omitted for tidiness; they do not work. Access is `docker compose exec`, and MCP reaches
   Claude Desktop over stdio through `docker exec` rather than over a socket.
-- **Nothing inside can fetch its own inputs at runtime.** Correct, and it applies to both
-  things this system needs from the outside world. Weights arrive via `model-puller`
-  (`make pull-models`); documents arrive via `corpus-fetcher` (`make fetch-corpus`). Both are
-  profile-gated services on the `provision` network, invoked explicitly, and neither is running
+- **Nothing inside can fetch its own inputs at runtime.** Correct, and it applies to every
+  input. Weights arrive via `model-puller` (`make pull-models`), documents via `corpus-fetcher`
+  (`make fetch-corpus`), the shoreline via `coastline-fetcher` (`make fetch-coastline`), and
+  granules are staged onto a read-only mount before the enclave is sealed. All three fetchers
+  are profile-gated services on the `provision` network, invoked explicitly, and none is running
   during operation. Provisioning and operation are different security postures and the compose
   file says so out loud rather than blurring them.
+
+  That the list is four items long and not three is itself a finding: the detector's own land
+  mask structurally cannot separate a 100 m skerry from a 100 m hull, so a real air-gapped
+  deployment has to ship a coastline with it. The clip happens online, so the enclave carries
+  713 KB rather than the 149 MB archive.
 
 ---
 
@@ -88,11 +96,13 @@ Two consequences follow, and both are deliberate:
 cp .env.example .env      # then set POSTGRES_PASSWORD
 make preflight            # checks docker, the nvidia runtime, VRAM, the AOI config
 make up                   # build + start, waits for every container healthy
-make pull-models          # once, ~10 GB   ┐ the only two steps that touch the network
-make fetch-corpus         # once, ~35 MB   ┘
+make pull-models          # once, ~10 GB   ┐
+make fetch-corpus         # once, ~35 MB   ├ the only steps that touch the network
+make fetch-coastline      # once, 149 MB   ┘ (149 MB in, 713 KB kept)
 make ingest               # chunk + embed the corpus into Qdrant (~1 min, offline)
 make air-gap-proof        # §M1: no egress, inference works anyway
 make rag-proof            # §M2: ungrounded vs grounded, and the refusal path
+make dark-proof           # §M3: detector, AIS, the space-time join, and the renders
 ```
 
 `make` with no target lists everything.
@@ -283,6 +293,137 @@ $ docker compose exec api nightglass-corpus fetch --out /tmp/probe   # writable 
 
 ---
 
+## Dark vessels: detection, and a space–time join
+
+`make dark-proof` runs the whole chain over the Danish AOI — schema, scene, detector, AIS, the
+query, then the renders. **Denmark, not Portugal, and that is the point of having two AOIs:** it
+is the only one with free point-level historical AIS, so it is the only place a claim about the
+matcher can be *checked* rather than asserted.
+
+```
+detections    60          in the Kattegat AOI, from one Sentinel-1 GRD granule
+matched       45          an AIS vessel within 500 m of where SAR would have drawn it
+dark          15          no AIS correspondence — 25.0%
+```
+
+### The detector is ours
+
+VH channel, read in place from the SAFE zip through `/vsizip/` — no extraction, so six granules
+cost 4.7 GB instead of 33 GB. `sigma0 = (DN² − noise) / A²` using the product's own calibration
+and thermal-noise LUTs, then a two-parameter CFAR against block-censored clutter statistics,
+connected components via `rasterio.features.shapes`, and positions from a **thin-plate-spline**
+GCP transform.
+
+That last one is worth a number. Fitting a polynomial through the 210 tie points — the obvious
+thing — leaves a **mean 40 m and worst-case 185 m** geolocation error, because the geolocation
+grid of a 250 km swath is not a polynomial surface. TPS interpolates through them exactly:
+residual **0.000 m**, for 15× the transform cost, which is 0.15 s per 20,000 points. At a 500 m
+match radius, 185 m of avoidable error is over a third of the budget.
+
+Measured against AIS, restricted to the scene footprint and open water:
+
+| AIS-reported length | vessels | detected within 500 m | recall |
+|---|---|---|---|
+| ≥ 200 m | 6 | 6 | **100%** |
+| 100–200 m | 7 | 5 | 71% |
+| 50–100 m | 3 | 3 | **100%** |
+| **≥ 30 m** | **17** | **15** | **88%** |
+| < 25 m | 37 | 3 | 8% |
+
+The 8% on sub-25 m craft is not a defect — it is 10 m pixels meeting a 20 m hull.
+
+### The correction that makes the match work
+
+§5 asks the matcher to account for the offset between AIS report time and image acquisition.
+There are two offsets, and keeping them apart is the substance of the fusion problem:
+
+**Time.** A vessel at 12 kn covers 3.7 km inside a ±11 min window, so "nearest report in time"
+is not a position. Each track is linearly interpolated onto the acquisition instant, in SQL,
+with `LEAD` over the per-vessel track. Vessels without reports on *both* sides are dropped
+rather than extrapolated — an extrapolated position that then fails to match would manufacture
+a dark detection out of a gap in the feed.
+
+**Geometry.** SAR places a target in azimuth by its Doppler, so a moving ship is drawn
+`(R/V)·v_los` from where it actually was. Here R/V ≈ 115 s, so 12 kn across the range direction
+is **~450 m** — most of the match radius, spent before the matcher does anything. The naive fix
+is a wider radius; that is worse than it looks, because the radius is the entire boundary
+between "matched" and "dark", so widening it to absorb a *predictable* offset buys false matches
+at the same rate it avoids false darks. So it is computed, from the product's own annotation and
+from AIS SOG/COG.
+
+**The sign was derived one way and measured the other way, and the measurement won.**
+
+| | <100 m | <200 m | <500 m | median |
+|---|---|---|---|---|
+| interpolated, no correction | 8 | 17 | 43 | 330 m |
+| correction, sign **+1** (as derived) | 0 | 3 | 23 | 630 m |
+| correction, sign **−1** (as measured) | **19** | **33** | **45** | **173 m** |
+
+![azimuth displacement correction](docs/evidence/azimuth_correction.png)
+
+The wrong sign is about as far wrong as the right sign is right — the signature of a real
+systematic offset being corrected backwards. The derivation had assumed the processor places a
+target at the azimuth time whose Doppler equals the observed one; it actually focuses at the
+target's Doppler *zero crossing*. Leaving the sign as a parameter to be measured is what caught
+it.
+
+### Land is masked twice, and it has to be
+
+The first mask is derived from the scene: land backscatters 10–15 dB above calm sea at VH, so a
+thresholded block mean finds it with no auxiliary data at all. It handles the mainland.
+
+It cannot handle skerries, and not because it is badly tuned. It must *open* the mask — erode,
+then dilate — or every bright vessel becomes its own island and the mask deletes the detections
+it exists to protect. Opening removes bright objects smaller than the structuring element, and a
+100 m rock is exactly that. Run with the data-derived mask alone, the detector drew a tidy line
+of "vessels" down the Swedish archipelago off Gothenburg with almost no AIS anywhere near it.
+
+So the second mask is a real shoreline: **GSHHG at full resolution**, fetched at provisioning
+time and clipped to the AOI — 149 MB downloaded, 713 KB kept. The trade-off is measured, not
+guessed:
+
+| shoreline buffer | detections | matched | dark | dark rate |
+|---|---|---|---|---|
+| 300 m | 71 | 46 | 25 | 35% |
+| **1000 m** *(default)* | **60** | **45** | **15** | **25%** |
+| 2000 m | 53 | 44 | 9 | 17% |
+| 3000 m | 50 | 43 | 7 | 14% |
+
+Going from 300 m to 3 km removes 21 detections — **18 of them dark and only 3 matched**. Coastal
+detections are overwhelmingly not vessels, and the buffer costs almost no real ones. 1 km is
+where that stops being nearly free.
+
+### Looking at it
+
+A detector that is only ever counted is a detector nobody has checked. Both failures above were
+invisible in the numbers and obvious in the first render, so `make render` is part of the
+pipeline rather than a debugging afterthought.
+
+![detections vs AIS](docs/evidence/map_result.png)
+
+Matched detections carry an AIS fix inside them and sit in open water. The unmatched ones
+cluster on the coastal edge — with two genuine open-water exceptions, which is exactly the kind
+of thing an analyst should be handed.
+
+Every detection at native resolution, and the AOI in radar geometry with the land mask drawn on
+it, are in [`docs/evidence/`](docs/evidence). `make dark-proof` regenerates all of it into
+`data/out/`; the committed copies are the snapshot these numbers come from.
+
+### What the numbers do *not* say
+
+- **25% unmatched is not a 25% dark-vessel rate.** Published work on Danish waters finds ~5%
+  unmatched and ~0.4% genuinely dark after review. The residual here concentrates near shore and
+  is dominated by coastal clutter this pipeline has not fully separated from vessels.
+- **Detected length is not a reliable size estimate.** Detecting at 8σ and measuring at the same
+  threshold gave lengths with **r = 0.015** against AIS — no relationship at all, because at
+  that threshold the blob tracks peak brightness rather than hull. Re-growing each detection at
+  2.5σ fixed the *bias* (median ratio 0.30× → **1.15×**) but the per-vessel scatter stays wide
+  (**r = 0.198**). The median is usable; an individual number is not.
+- **`rate_is_quotable` is a field the code checks**, not a sentence someone has to remember. It
+  is true here only because every match came from DMA.
+
+---
+
 ## Design decisions
 
 | Choice | Reason |
@@ -293,7 +434,10 @@ $ docker compose exec api nightglass-corpus fetch --out /tmp/probe   # writable 
 | bge-m3 for embeddings | Genuinely multilingual. Measured: a Portuguese query against its English equivalent scores **0.842** cosine, against unrelated Portuguese text **0.283** — a 0.56 separation, so it keys on meaning rather than language. Deployments are national; the corpus and the queries will not both be English. This choice is one-way, since changing it means re-embedding everything. |
 | Qwen2.5 **14B** at q4_K_M | Fits consumer VRAM (~9 GB weights, ~15 GB resident with a 32k KV cache, on a 24 GB card), strong tool-calling, permissive licence. Verified chaining three distinct tools unprompted from a Portuguese question. |
 | LangGraph over CrewAI | An explicit state machine with a genuinely interruptible node, which the human-in-the-loop gate needs. State persists and is inspectable while halted — a bare `input()` only blocks a thread. |
-| PostGIS for geometry | Spatial correlation belongs in a spatial database, not in Python. |
+| PostGIS for geometry | Spatial correlation belongs in a spatial database, not in Python. The dark-vessel join is one query in `src/nightglass/spatial/sql/dark_vessels.sql` — track interpolation via `LEAD`, the azimuth-displacement correction via `ST_Project`, distances via `geography` casts so they come back in metres rather than degrees. It stays a `.sql` file so it can be read top to bottom and run a CTE at a time. |
+| Scene as a STAC Item, not a bespoke table | `stac_search` (§5) is a catalogue query. Modelling the catalogue as STAC keeps the door open to pointing the same tool at a real STAC API — which is what a customer deployment has — rather than at a table only this project understands. The Item is stored whole in `jsonb`; the columns beside it are extracted for indexing. |
+| A shoreline is a fourth provisioning input | Weights, documents, granules — and now GSHHG. The detector's own land mask structurally cannot separate a 100 m skerry from a 100 m hull, so an air-gapped deployment genuinely has to ship a coastline with it. Saying that is a better answer to "what does this need bundled" than pretending the list was three items long. |
+| TPS over polynomial GCP fit | Measured on a real granule: polynomial leaves 40 m mean / 185 m worst-case geolocation error, TPS leaves 0.000 m. 15× slower on a cost of 0.15 s per 20,000 points. |
 | GRD not SLC | Vessel detection needs amplitude only. Phase is for interferometry, which is out of scope. |
 | Agent as a one-shot, not a service | It runs to a human gate and halts. It has nothing to serve between invocations, so a daemon wrapper would exist only to satisfy a healthcheck. |
 
@@ -344,6 +488,24 @@ Stated before being asked, because each one was tested rather than assumed.
   against. Denmark is the only AOI where this is observable, which is much of what the Danish
   AOI is for.
 - Single scene per AOI. No CFAR tuning. No accuracy claims beyond what was measured.
+- **25% of detections unmatched is not a 25% dark-vessel rate.** Published work on Danish waters
+  finds ~5% unmatched and ~0.4% genuinely dark after review. The excess here concentrates near
+  shore and is coastal clutter this pipeline has not fully separated from vessels — the
+  shoreline-buffer sweep above shows near-shore detections are unmatched at 6:1. The honest
+  reading is that the *matcher* is validated (45 matches, median 119 m, 88% recall above 30 m)
+  and the *detector's* coastal precision is not yet good enough to quote a rate from.
+- **Detected length is a size band, not a measurement.** Median ratio against AIS-reported length
+  is 1.15×, but per-vessel correlation is only **r = 0.198**. It is used as a filter and
+  reported as an attribute; it is not evidence about a specific vessel.
+- **Heading is reported only when the blob is genuinely elongated**, and is ambiguous by 180°
+  even then — a SAR blob has no bow. The first version returned a heading for every detection
+  and the values clustered on two figures 90° apart, which was a picture of the pixel grid
+  rather than of a fleet.
+- **The land mask is a coastline plus a buffer, not a hydrographic product.** Vessels genuinely
+  within 1 km of shore are not reported at all. Harbour traffic is outside what this sees.
+- **Azimuth displacement is corrected; range migration and wake effects are not.** The
+  correction uses one scene-mean platform speed and per-detection slant range and incidence; it
+  does not model the vessel's own acceleration or a squinted geometry.
 - **A third of the document corpus is synthetic, and it is the third that defines the terms.**
   The doctrine, the AOI baselines and the reporting conventions are memos written for this
   project; the regulatory grounding underneath them is real. Answers built on the synthetic
@@ -367,7 +529,14 @@ exists for this mission.
 
 ## What I'd do with three more weeks
 
-- Real CFAR with sea-state adaptation, rather than a fixed threshold
+- Real CFAR with sea-state adaptation, rather than one threshold per block
+- **Fix coastal precision properly.** The shoreline buffer is a blunt instrument that trades
+  real vessels for clutter. A hydrographic layer with harbour limits, aids to navigation and
+  fixed-structure catalogues (wind farms, platforms) would let near-shore detections be
+  classified rather than excluded — and that is where the 25% unmatched figure actually lives.
+- **Per-detection azimuth time.** A granule spans 25 s and the AIS is currently interpolated to
+  the scene mid-time. A detection's own along-track position says when it was really imaged,
+  worth ~130 m at 10 kn — inside the current radius, but it is free accuracy.
 - Multi-scene temporal tracking, so a detection becomes a track
 - Coherent change detection with SLC pairs
 - Offline CI/CD — the bundler (`docker save` + wheelhouse + model blobs → one tarball with a
@@ -388,7 +557,7 @@ exists for this mission.
 ```
 docker-compose.yml        the enclave — one internal network, no egress
 docker/                   application image (runtime · fetcher · dev), postgis init
-scripts/                  preflight, air-gap proof, rag proof, model seeding, env loader
+scripts/                  preflight, air-gap proof, rag proof, dark proof, model seeding
 corpus/
   sources.yaml            manifest of the 39 public documents — URLs, not documents
   synthetic/              21 INTREP/INTSUM memos, UNCLASSIFIED // SYNTHETIC, committed
@@ -404,10 +573,25 @@ src/nightglass/
     index.py              Qdrant: ingest, and §5's doc_search
     answer.py             grounded generation, citation verification, refusal
     cli.py                nightglass-corpus fetch|ingest|search|ask|stats
+  spatial/
+    safe.py               Sentinel-1 SAFE read in place: annotation, calibration, noise, GCPs
+    detect.py             the vessel detector — CFAR, land mask, TPS geolocation
+    geodesy.py            bearings, and the azimuth-displacement physics
+    coastline.py          ONLINE fetch + AOI clip; the second land mask
+    ais.py                source adapters — DMAFileSource · GFW · CustomerFeedSource
+    db.py                 PostGIS access; the SQL lives in files, not f-strings
+    sql/001_schema.sql    stac.scenes · detect.runs+detections · ais.positions
+    sql/dark_vessels.sql  §M3's join — interpolate, correct, match. Readable on its own.
+    render.py             chips, scene overview, map view — the evidence
+    plots.py              validation charts
+    validate.py           measure the detector against DMA ground truth
+    cli.py                nightglass-spatial migrate|scenes|detect|load-ais|dark|render
   api/                    FastAPI
   mcp/                    FastMCP, stdio + sse
   agent/                  LangGraph (M5)
-data/                     gitignored — 6.2 GB of SAR and AIS, plus the fetched corpus
+docs/evidence/            committed renders — the snapshot the README's numbers come from
+data/                     gitignored — 6.2 GB of SAR and AIS, the corpus, the coastline
+  out/                    rendered evidence, regenerated by `make dark-proof`
 EXECUTION_SPEC.md         what to build
 PRE_DEV_GUIDE.md          verified data access paths
 NOTES.md                  decisions, corrections, measurements

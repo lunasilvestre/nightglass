@@ -15,8 +15,15 @@ ENV PYTHONUNBUFFERED=1 \
 #     docker compose exec api curl -m 5 https://example.com
 # so curl has to exist inside the image for the milestone to be demonstrable at
 # all. The container healthchecks use it too.
+#
+# libexpat1 is here for rasterio. Its manylinux wheel vendors GDAL, PROJ and the
+# rest, but still dynamically links the system libexpat -- and python:3.13-slim
+# does not ship it. `pip install rasterio` succeeds; `import rasterio` then dies
+# with "libexpat.so.1: cannot open shared object file". A green build is not
+# proof the enclave can read a pixel, and there is no apt inside the enclave to
+# fix it afterwards.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates \
+ && apt-get install -y --no-install-recommends curl ca-certificates libexpat1 \
  && rm -rf /var/lib/apt/lists/*
 
 
@@ -25,9 +32,18 @@ FROM base AS runtime
 WORKDIR /app
 
 # Dependency layer first, so edits to src/ don't reinstall the world.
+#
+# `spatial` (rasterio, shapely, pyproj, geopandas, pandas) is installed HERE, at
+# build time, and that is the whole point. Inside the enclave there is no package
+# index to install from -- the first `make test` proved it by failing with
+# "Temporary failure in name resolution". Anything the running system needs has
+# to be in the image before the network goes away. The wheels are self-contained:
+# rasterio and pyproj vendor their own GDAL and PROJ, so no apt-level geo stack
+# is needed and the enclave's GDAL version is pinned by the wheel rather than by
+# whatever the base image happens to ship.
 COPY pyproject.toml README.md ./
 COPY src/nightglass/__init__.py src/nightglass/__init__.py
-RUN pip install --no-cache-dir -e ".[services]"
+RUN pip install --no-cache-dir -e ".[services,spatial,viz]"
 
 COPY src/ src/
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

@@ -147,6 +147,24 @@ The AIS layer needs a **source adapter interface** with at least two implementat
 **Portugal:**
 - ~~Sentinel-1 coverage over Portuguese waters is **unverified**~~ → **[VERIFIED 2026-08-03] Coverage is healthy; this risk is retired.** ASF `GRD_HD` counts, 1–15 Jun 2026: Lisbon/Tagus **46**, deep Atlantic **34**, Porto/Leixões **31**, Algarve **28**, Azores 5, Madeira 4. Coastal *and* open ocean both fine — the concern that S1 doesn't image open ocean did not hold here. Full June over Lisbon: **81 granules, 100% dual-pol VV+VH**, so VH is available for detection on every scene.
 - GFW SAR detections via free token; `gfw_sar_vessel_detections(spatial_resolution="HIGH", temporal_resolution="HOURLY", group_by="MMSI", filter_by="matched='false'")`. CC BY-NC 4.0.
+
+> **[RESOLVED 2026-08-03 — per-detection `matched` flags ARE retrievable, and this is better
+> than assumed.]** The open worry was that the public API returns only gridded aggregate counts,
+> degrading the Portuguese reference layer to "GFW saw N here, my detector saw M". It does not.
+> `/v3/4wings/report` is the aggregate endpoint — that is what earlier probing found — but
+> **`/v3/4wings/tile/position/{z}/{x}/{y}`** returns individual detection points as MVT and
+> accepts `filters[0]=matched='false'`. Verified over the Lisbon AOI, z9 tile 242/196,
+> 2026-06-13: **13 detections = 10 matched + 3 unmatched.**
+>
+> Decisively, each feature's `id` is `<granule_id>;<lon>;<lat>` — and that granule
+> (`S1A_IW_GRDH_1SDV_20260613T064316_..._F72E`) is one already downloaded. So the Portuguese
+> cross-check is a **detection-for-detection comparison against a published layer computed over
+> the identical granule**, including GFW's own unmatched flags. Stronger than this section
+> assumed. Not yet built — it is the top M4 item.
+>
+> Two gotchas: `curl` glob-expands the `[0]` in `datasets[0]=` and silently sends no request
+> (use `curl -g`; the symptom is an empty status, not an error), and `tile/heatmap` 422s without
+> an explicit `format=` while `tile/position` does not.
 - **GFW's SAR product has been in outage since 3 July 2026** (S1A retirement / 1C-1D migration). Use a historical date before July 2026.
 - **Be explicit in the README that GFW detections are a reference layer, not your computation.** You ran your own detector on real scenes and cross-checked against an independent published layer. That's a real result. Claiming independent AIS correlation over Portugal is not, and it would unravel in a technical round.
 
@@ -428,7 +446,11 @@ At some point he should make a non-trivial change himself. Hands in it beats rea
 [x] M0  scaffold, compose up, healthchecks, NOTES.md   ← 5/5 containers healthy 2026-08-03
 [x] M1  offline inference + failed-egress proof captured   ← 2026-08-03, in README
 [x] M2  RAG with citations + refusal path   ← 2026-08-03, 60 docs / 1,814 chunks, in README
-[ ] M3  PostGIS, dark-vessel SQL hand-checked against the ~5% base rate
+[x] M3  PostGIS, dark-vessel SQL hand-checked   ← 2026-08-03, see README + NOTES.
+        60 detections / 45 matched / 15 dark; recall 88% for AIS vessels >=30 m;
+        median match distance 119 m; azimuth-displacement sign measured, not assumed.
+        Unmatched 25% vs the ~5% base rate: the excess is coastal clutter, measured
+        via a shoreline-buffer sweep, and stated as a limitation rather than a rate.
 [ ] M4  six tools, MCP server, Claude Desktop + local model both driving it
 [ ] M5  LangGraph agent, real interrupt at HIL gate
 [ ] M6  README, diagram, 90-second recording

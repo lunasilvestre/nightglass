@@ -195,6 +195,22 @@ class Settings(BaseSettings):
     # it looks like the honesty feature working.
     rag_min_score: float | None = Field(default=None, alias="NIGHTGLASS_RAG_MIN_SCORE")
 
+    # M3 spatial layer. Granules are read in place from the archive -- see
+    # `spatial/safe.py` -- so this is a directory of zips, not of extracted
+    # products. `coastline_dir` holds the AOI-clipped GSHHG shoreline written by
+    # the provisioning-time fetcher; the enclave only ever reads it.
+    scene_dir: Path = Field(default=Path("/app/data/raw/sar"), alias="NIGHTGLASS_SCENE_DIR")
+    coastline_dir: Path = Field(
+        default=Path("/app/data/coastline"), alias="NIGHTGLASS_COASTLINE_DIR"
+    )
+    out_dir: Path = Field(default=Path("/app/data/out"), alias="NIGHTGLASS_OUT_DIR")
+    # Match tolerance for `ais_match` (§5). 500 m is the spec default and is
+    # meant to absorb geolocation and interpolation error -- NOT the azimuth
+    # displacement of a moving vessel, which is corrected for explicitly rather
+    # than hidden inside a wider radius. See `spatial/geodesy.py`.
+    match_radius_m: float = Field(default=500.0, alias="NIGHTGLASS_MATCH_RADIUS_M")
+    match_window_min: float = Field(default=11.0, alias="NIGHTGLASS_MATCH_WINDOW_MIN")
+
     ollama_host: str = Field(default="http://ollama:11434", alias="OLLAMA_HOST")
     ollama_chat_model: str = Field(
         default="qwen2.5:14b-instruct-q4_K_M", alias="OLLAMA_CHAT_MODEL"
