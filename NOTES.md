@@ -1315,6 +1315,37 @@ marker shape so identity never rests on colour alone.
 
 Worth the note because the check took ten seconds and the alternative was arguing about taste.
 
+### 31. The detector generalises to Portugal with no retuning — and that was the cheap check
+
+Every parameter was set while looking at *one* Danish scene, which is a real overfitting risk.
+Running the same configuration over `S1A_..._20260613T064316` (Lisbon approaches) unchanged:
+
+| | Kattegat (S1D, 17 Jul) | Lisbon (S1A, 13 Jun) |
+|---|---|---|
+| water sigma0 / NESZ | −29.1 / −29.4 dB | −26.5 / −26.5 dB |
+| land-masked | 51.6% | 33.0% |
+| binding criterion | CFAR | CFAR |
+| detections | 60 | 133 |
+
+Different platform, different sea state, different beam geometry, no parameter touched. The
+chips are unambiguous vessels.
+
+**A hypothesis worth recording because it was wrong.** The map showed a near-vertical line of
+detections at ~10.0°W, which looked like a sub-swath boundary artefact — a plausible failure,
+since the IW noise correction is imperfect at those seams. Tested it: the noise annotation puts
+the boundaries at samples 8751 and 17566, and only **1% and 3%** of detections fall within ±400
+samples of them. Refuted. It is the north–south coastal shipping lane, and the chips confirm
+hulls.
+
+The lesson is the order: the hypothesis was cheap to state, cheaper to test against the
+product's own annotation, and testing it took less time than arguing about it would have.
+
+**One real effect it did surface:** almost every Portuguese chip shows heavy **azimuth smear** —
+the vertical streak of a moving target — and the region-growing sizer picks the smear up, which
+is why lengths run large there (226 m, 270 m, 325 m). This is the same mechanism behind the weak
+length correlation measured in Denmark (r = 0.198), now visible rather than inferred. A wake- or
+smear-aware sizer is the fix; it is on the three-weeks list, not in M3.
+
 ### Performance, for reference
 
 | step | time |

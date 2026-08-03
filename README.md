@@ -409,6 +409,24 @@ Every detection at native resolution, and the AOI in radar geometry with the lan
 it, are in [`docs/evidence/`](docs/evidence). `make dark-proof` regenerates all of it into
 `data/out/`; the committed copies are the snapshot these numbers come from.
 
+### It generalises
+
+Every parameter above was set while looking at one Danish scene, which is a real overfitting
+risk. Running the same configuration unchanged over a Portuguese granule — different platform
+(S1A), different sea state, different beam geometry:
+
+| | Kattegat (S1D, 17 Jul) | Lisbon (S1A, 13 Jun) |
+|---|---|---|
+| water sigma0 / NESZ | −29.1 / −29.4 dB | −26.5 / −26.5 dB |
+| land-masked | 51.6% | 33.0% |
+| binding criterion | CFAR | CFAR |
+| detections | 60 | 133 |
+
+No parameter touched, and the [chips](docs/evidence/pt_chips.png) are unambiguous vessels — most
+of them showing the vertical azimuth smear of a moving target. That smear is also why lengths
+run large on this scene, and it is the same mechanism behind the weak length correlation
+measured over Denmark.
+
 ### What the numbers do *not* say
 
 - **25% unmatched is not a 25% dark-vessel rate.** Published work on Danish waters finds ~5%
