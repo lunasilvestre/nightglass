@@ -103,6 +103,7 @@ make ingest               # chunk + embed the corpus into Qdrant (~1 min, offlin
 make air-gap-proof        # §M1: no egress, inference works anyway
 make rag-proof            # §M2: ungrounded vs grounded, and the refusal path
 make dark-proof           # §M3: detector, AIS, the space-time join, and the renders
+make tool-proof           # §M4: the tools over MCP, and the local model chaining them
 ```
 
 `make` with no target lists everything.
@@ -438,7 +439,134 @@ measured over Denmark.
   2.5σ fixed the *bias* (median ratio 0.30× → **1.15×**) but the per-vessel scatter stays wide
   (**r = 0.198**). The median is usable; an individual number is not.
 - **`rate_is_quotable` is a field the code checks**, not a sentence someone has to remember. It
-  is true here only because every match came from DMA.
+  is true here only because every match came from DMA. It is also only *half* the check — see
+  below.
+
+---
+
+## Six tools, two consumers
+
+`make tool-proof` runs the whole of it: the MCP transport Claude Desktop attaches with, a tool
+called over that transport, the local 14B model chaining three tools unaided, and the report
+refusing to state the one number it must not.
+
+The six §5 tools live in `src/nightglass/tools/` and are defined once. FastAPI serves them over
+HTTP, FastMCP serves the same functions over MCP, and the M5 agent will call them in-process. A
+tool that existed twice would be a tool that behaved differently depending on who asked.
+
+### The boundary is crossed by a pipe, not a port
+
+Claude Desktop runs on the host; the server runs in the enclave. They meet over stdio:
+
+```bash
+docker exec -i nightglass-mcp nightglass-mcp stdio
+```
+
+There is no published port, and there could not be: a container on a network declared
+`internal: true` silently gets no host port mapping at all, even if one is written. `docker exec`
+crosses the boundary without opening it, which is the honest way to do it.
+
+```
+serverInfo   nightglass 0.1.0   protocol 2025-06-18
+tools/list   7
+    nightglass_status  ()
+    stac_search        (bbox, start, end)
+    detect_vessels     (scene_id)
+    ais_match          (detections)
+    doc_search         (query)
+    correlate          (bbox, start, end)
+    draft_intrep       (bbox, start, end)
+```
+
+### Provenance travels with the value
+
+Not in a log line — on the object, so it survives crossing a tool boundary and losing its Python
+type. A matched detection carries the reasoning that matched it:
+
+```
+MMSI 246541000, THUN GAZELLE, Tanker; position interpolated onto the acquisition
+instant, azimuth displacement -213 m applied (separation before correction 181 m);
+matched inside 500 m / ±11 min
+```
+
+and an unmatched one carries the caveat rather than leaving it to the reader:
+
+```
+no AIS correspondence in dma within 500 m and ±11 min of acquisition. This is a
+statement about one feed at one instant, not about the vessel: revisit gaps,
+terrestrial coverage limits, transponder failure, class B low power and vessels
+not required to carry AIS all produce it. A lead, not a conclusion.
+```
+
+### The same tools, driven by the 14B model inside the enclave
+
+A Portuguese question, no bbox and no scene id in the prompt, tools chosen by the model:
+
+```
+1. stac_search({"bbox": [10.5,55.5,12.5,57.5], "start": "2026-07-17T00:00:00Z", …})   -> 2 scenes
+2. detect_vessels({"scene_id": "S1D_…_BC13"})                                          -> 60
+3. ais_match({"detections": [60 ids]})                          -> matched 45, unmatched 15
+```
+
+45 and 15 are the hand-checked SQL's numbers, and the fifteen unmatched ids it reported back are
+**identical to the database's** — checked, not assumed. It hedged without being asked
+(*"leads para análise adicional … não podem ser consideradas como evidências conclusivas"*) and
+stated no rate.
+
+That pair — a frontier model over a pipe from outside, a 14B model from inside, one tool
+surface — is the part worth having. A capability that only works with a frontier model on the
+other end of it is not an air-gapped capability.
+
+### The number the tools will not give you
+
+`CorrelationResult.rate_is_quotable` asks whether the AIS feed is complete enough to be a
+denominator. Over Denmark it is: DMA is ground truth, and the field is **true**.
+
+The report still refuses to state a dark-vessel rate, because that field only guards one side of
+the fraction. It says nothing about whether the things in the *numerator* are vessels — and 25%
+unmatched against a ~5% published base rate says they are substantially coastal clutter. A
+matcher being validated does not make a detector's coastal precision validated.
+
+So there are two independent conditions, checked separately, and `DETECTOR_PRECISION_VALIDATED`
+in `tools/intrep.py` is a constant sitting at `False` with a test as its tripwire — flipping it
+takes a measurement, in the same commit. Three layers enforce the consequence, in increasing
+order of how much they can be trusted: the templated findings never compute a proportion, the
+generation prompt forbids one, and `scrub_rate_claims` removes any claim that states one anyway.
+Only the third is a check rather than a request.
+
+What comes out instead is a draft that carries its references and computes its own caveats:
+
+```
+marking   UNCLASSIFIED // SYNTHETIC // DRAFT — NOT RELEASABLE
+claims    18, of which unsupported: 0
+
+  • 45 dessas deteções correspondem a uma embarcação que reporta AIS, após interpolar
+    a posição de cada embarcação para o instante de aquisição e corrigir o
+    deslocamento em azimute do SAR; separação mediana 96 m.        [scene×1; det×45]
+
+  - Nenhuma proporção de deteções sem correspondência é indicada neste relatório.
+    A precisão costeira do detetor não está validada. …
+  - Danish Maritime Authority — AIS data. …
+  - RASCUNHO — NÃO DIVULGÁVEL até revisão e libertação no controlo humano.
+```
+
+The DMA attribution stays in English inside a Portuguese report on purpose: a translated licence
+condition is not the licence condition.
+
+### Two decisions worth naming
+
+**`correlate` reuses a recorded detector run rather than re-reading the pixels.** This looks like
+an efficiency argument and is a correctness one: detection ids are assigned *after* the length
+and AOI filters, so re-running renumbers them, and `ais_match(["…:det_00005"])` would silently
+mean a different vessel. Reuse is gated on identity of every recorded input — detector, version,
+polarisation, AOI box, coastline, and every field of `DetectorConfig`, which is checkable because
+`detect.runs.parameters` is jsonb. Measured: reused and recomputed give 60 detections that are
+byte-identical on id, position, length, heading and confidence, in 0.9 s against 13.9 s.
+
+**`correlate` is bounded to one scene per call.** Reading a granule takes 14–20 s. The
+alternative — return a run id and let the client poll — needs a job table and a lifecycle, which
+is the hidden state §5 rules out. Scenes the search found but did not correlate come back
+carrying a note saying so and how to select them, so the bound is visible in the result.
 
 ---
 
@@ -575,7 +703,7 @@ exists for this mission.
 ```
 docker-compose.yml        the enclave — one internal network, no egress
 docker/                   application image (runtime · fetcher · dev), postgis init
-scripts/                  preflight, air-gap proof, rag proof, dark proof, model seeding
+scripts/                  preflight, the four proofs, MCP stdio probe, model seeding
 corpus/
   sources.yaml            manifest of the 39 public documents — URLs, not documents
   synthetic/              21 INTREP/INTSUM memos, UNCLASSIFIED // SYNTHETIC, committed
@@ -604,8 +732,14 @@ src/nightglass/
     plots.py              validation charts
     validate.py           measure the detector against DMA ground truth
     cli.py                nightglass-spatial migrate|scenes|detect|load-ais|dark|render
-  api/                    FastAPI
-  mcp/                    FastMCP, stdio + sse
+  tools/
+    spatial.py            stac_search · detect_vessels · ais_match · correlate
+    documents.py          doc_search — the M2 retriever behind the same boundary
+    intrep.py             draft_intrep, and the two-sided guard on the rate
+    chaining.py           the local model driving the tools; max-iters + repeat detector
+    cli.py                nightglass-tools list|call|chain
+  api/                    FastAPI — the six tools over HTTP
+  mcp/                    FastMCP — the same six over stdio + sse
   agent/                  LangGraph (M5)
 docs/evidence/            committed renders — the snapshot the README's numbers come from
 data/                     gitignored — 6.2 GB of SAR and AIS, the corpus, the coastline

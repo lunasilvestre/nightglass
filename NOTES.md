@@ -4,9 +4,120 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
-## → HANDOFF TO M4 (read this first in a fresh session)
+## → HANDOFF TO M5 (read this first in a fresh session)
 
-**M0–M3 are done.** `make dark-proof` runs the whole spatial chain and is the fastest way to see
+**M0–M4 are done.** `make tool-proof` runs the whole tool layer and is the fastest way to see the
+state of things. Everything below is what a new session cannot infer from the specs or code.
+
+### Run this first
+
+```bash
+cd ~/Documents/dev/nightglass
+make preflight && make up
+make dark-proof    # M3 — the spatial chain, and the numbers M5 must not overstate
+make tool-proof    # M4 — MCP over stdio, the local model chaining, the INTREP guard
+```
+
+`tool-proof` takes ~3 minutes, most of it the 14B model thinking. If `dark-proof` refuses with
+"no coastline", run `make fetch-coastline` first.
+
+### What M5 inherits, and the one thing to build differently
+
+**The six §5 tools are done and are pure functions over PostGIS.** `nightglass.tools` is the
+single definition; FastAPI and FastMCP both import it and neither owns any logic. The LangGraph
+agent should import the same functions **in-process** — there is no reason for it to go through
+HTTP to reach code in its own image.
+
+**`nightglass/tools/chaining.py` is the M4 proof and the M5 skeleton.** It is one `while` loop
+with no framework: max-iterations, plus the same-tool-same-arguments detector §M4 asked for.
+Both guards fired on real runs (finding 36) — do not drop them when the graph replaces the loop.
+Two details worth keeping:
+
+- The repeat detector **must not stop on the first repeat.** Re-calling can be correct when a
+  result genuinely does not satisfy the request. First strike puts the previous result back in
+  the transcript and says "advance"; second strike forces an answer. That two-strike shape is
+  what turned a context-burning loop into a 3-iteration run.
+- The model's tool schema **deliberately does not expose `radius_m` or `time_window_min`**
+  (finding 35). Keep it that way in the graph. The §5 Python signature still has them for
+  analysts and for the agent's own use.
+
+**⚠️ Build the final answer from the `CorrelationResult`, not from the model's recollection.**
+This is the single most useful thing to carry over. In the last proof run the model got every
+per-scene count right, listed 30 real detection ids, and *still* wrote "das 60 detecções … 15
+não" — conflating two scenes while summarising. It is not a prompting problem. `draft_intrep`
+already does it correctly because its findings are templated from the correlation object; the
+graph's `release` node should assemble prose the same way and use the model only for the parts
+that are genuinely generative.
+
+### The number to keep being careful with
+
+Unchanged from M4 and now enforced in two places rather than one. Over Denmark
+`CorrelationResult.rate_is_quotable` is **true** — DMA is ground truth, so the *source* side
+passes — and a rate is still not quotable, because `DETECTOR_PRECISION_VALIDATED` is False: 25%
+of detections are unmatched against a ~5% published base rate and the excess is coastal clutter.
+
+`tools.rate_verdict(correlation)` returns both reasons and is what M5 should call. Do not
+re-derive the condition in the graph; if the guard ever needs to change, it should change in one
+file. `scrub_rate_claims` is the backstop over generated text and there is a test asserting the
+guard's own explanatory caveat would not survive it — which is why caveats are assembled
+structurally and never scrubbed.
+
+### Things that are true and are not obvious from the code
+
+- **Two Danish granules, not one.** `stac_search` over the Kattegat window returns both `…BC13`
+  and `…34CE`, they are disjoint in latitude, and they independently give 60/45/15 each.
+  `correlate` picks by coverage of the requested bbox, so it correlates **34CE**, not the BC13
+  that every M3 number in the README refers to. Not a bug; worth knowing before wondering why the
+  scene id changed.
+- **`correlate` is bounded to one scene per call** and says so in each uncorrelated scene's
+  provenance note. If M5 needs both, call it twice with `scene_id`.
+- **The first `detect_vessels` on a cold scene takes 14–20 s** and writes the run, so everything
+  after it is a database read at ~1 s. A graph that re-runs the detector per node would be paying
+  that every time; it will not, because reuse is keyed on parameter identity, but only if the
+  parameters actually match — `min_length_m` below the recorded run forces a full recompute.
+- **`make tool-call T=… J='{…}'`** calls any single tool with raw JSON out. When the graph does
+  something odd, this answers "was it the tool or the model?" in one command.
+
+### Claude Desktop is configured on this machine
+
+`~/.config/Claude/claude_desktop_config.json` now has an `mcpServers.nightglass` entry running
+`/usr/bin/docker exec -i nightglass-mcp nightglass-mcp stdio`. The previous file is backed up
+alongside it as `claude_desktop_config.json.bak-pre-nightglass`. **Desktop only reads that file
+at startup**, so it needs a restart to pick the server up; the transport itself is proven
+independently by `make mcp-tools`, which speaks the same JSON-RPC over the same command.
+
+Note that Desktop's *other* MCP servers (Desktop Commander, Filesystem, Context7) come from
+`extensions-installations.json`, not from this file — so an empty-looking `mcpServers` key on a
+fresh machine does not mean the file is unused.
+
+### Still open, in priority order
+
+1. **The 25% unmatched rate.** Unchanged, and now guarded in two places rather than argued about.
+   Separating harbour structures and fixed installations from vessels is the real fix.
+2. **The GFW comparison** — verified during M3, unwritten, and scheduled for M6. `correlate` now
+   exists, which was the reason for deferring it.
+3. **A genuinely cold `make pull-models`** — unchanged from M2.
+4. **Portuguese AOI still undecided** between Lisbon and Leixões. Note that **no AIS is loaded for
+   Lisbon**, so a Portuguese `correlate` today returns every detection unmatched against a feed of
+   "none loaded" — which the guard handles correctly but which is not a demo.
+5. **Citation entailment** — unchanged from M2.
+6. **`scrub_rate_claims` is a regex over two languages.** It catches the shapes this model
+   produces, including two it did not catch in a first draft, and it is not a proof. The real
+   guarantee is that the templated findings never compute a proportion at all.
+
+### ⚠️ Host machine state that is NOT in the repo
+
+Unchanged: `ollama.service` is `inactive` but still `enabled` and will come back on the next
+reboot, re-pinning ~15 GB of the 3090. `make preflight` detects it. The enclave volumes hold both
+models (9.5 GB) — do not `make clean` casually.
+
+---
+
+## → HANDOFF TO M4 — ✅ SUPERSEDED
+
+*M4 is done. Kept for the reasoning it records; the current handoff is above.*
+
+**M0–M4 are done.** `make dark-proof` runs the whole spatial chain and is the fastest way to see
 the state of things. Everything below is what a new session cannot infer from the specs or code.
 
 ### Run this first
@@ -1390,6 +1501,209 @@ smear-aware sizer is the fix; it is on the three-weeks list, not in M3.
 | AIS load, 38,239 deduplicated positions via COPY | ~6 s |
 | the dark query | < 1 s |
 | GSHHG fetch + clip for three AOIs | ~90 s, once |
+
+---
+
+## M4 — done 2026-08-03. Six tools, two surfaces, and a second guard on the one number.
+
+`make tool-proof` is the whole milestone in one command: the MCP transport Claude Desktop
+attaches with, a tool called over it, the local 14B model chaining three tools unaided, and the
+INTREP refusing to state a rate.
+
+### The two decisions the handoff said to make before writing code
+
+**1. `correlate` reads an existing detector run rather than re-running the pixels.** The
+tempting reading of §5's "no caching that changes results between runs" is that every call must
+recompute. It is the wrong one, and finding 32 is the measurement that settles it. A run is
+reused only on identity of every recorded input — detector, version, polarisation, AOI box,
+coastline descriptor and every field of `DetectorConfig` — which is checkable because
+`detect.runs.parameters` is jsonb.
+
+**2. `correlate` is bounded to one scene per call.** The alternative — return a run id and let
+the client poll — needs a job table, a status endpoint and a lifecycle, which is the hidden
+state §5 rules out. One scene is 14–20 s and fits an MCP call; the two Danish granules together
+would not. Scenes the search found but did not correlate come back in `scenes` carrying a
+provenance note naming them and saying how to select them, so the bound is visible in the result
+rather than documented somewhere else.
+
+### 32. ⭐ Re-running the detector renumbers the detections — which is what decides reuse
+
+The argument for reuse looked like an efficiency argument and turned out to be a correctness
+argument. `_finalise` assigns ids (`…:det_00007`) **after** the length and AOI filters, so the
+same physical vessel gets a different id at a different `min_length_m`. Measured over the
+Kattegat scene:
+
+| | detections | first five ids |
+|---|---|---|
+| stored run at 15 m, filtered to ≥ 100 m | 35 | `det_00001 … det_00005` |
+| fresh run at 100 m | 35 | `det_00000 … det_00004` |
+
+Same 35 physical detections — identical positions, lengths, headings, confidences — under
+**different ids**. So `ais_match(["…:det_00005"])` silently means a different vessel depending on
+whether the detector happened to be re-run in between. Reuse is the branch that keeps a tool
+call meaning the same thing twice; recomputing is the one that changes results between runs.
+
+Verified the other direction too, since the reuse path is only as good as its claim to be equal:
+reused vs `recompute=True` at the same threshold gives 60 detections both ways, byte-identical on
+id, position, length, heading and confidence — in 0.9 s against 13.9 s.
+
+The filter-down equality is provable rather than approximate: nothing upstream of `_finalise`
+reads `min_length_m`, so a stored run at 15 m filtered to ≥ 30 m *is* the run-at-30 m detection
+set. A stored run at 30 m asked for 15 m is not a filter, it is missing data, and
+`_same_parameters` refuses it.
+
+### 33. ⭐ The rate guard was only half wired, and the Danish case is what proves the other half
+
+`CorrelationResult.rate_is_quotable` guards the **source** side: is the AIS feed complete enough
+to be a denominator. Nothing guarded the **precision** side: are the things in the numerator
+vessels. Over Denmark the first passes — DMA is ground truth — and the answer is still no,
+because 25% of detections are unmatched against a ~5% published base rate and the excess is
+coastal clutter (finding 24). `rate_verdict()` checks both independently, and
+`DETECTOR_PRECISION_VALIDATED` is a constant sitting at `False` with a test as its tripwire, so
+flipping it can only happen in the same commit as the measurement that earns it.
+
+Three layers, in increasing order of how much they can be trusted — the same structure
+`rag/answer.py` uses for citations: the templated findings never compute a proportion; the
+generation prompt forbids one; `scrub_rate_claims` removes any that survives. Only the third is
+a check rather than a request, and it is the weakest-guarantee layer precisely because the first
+layer means there is no correct number for a generated claim to be paraphrasing.
+
+**A bug the guard hid while looking like it worked.** `dark_vessels.sql` returns
+`COALESCE(n.is_ground_truth, false)`, which is false for every *unmatched* detection simply
+because there is no matched vessel to read the flag from. Copying that onto the `Match` made
+`rate_is_quotable` false the moment a single detection went dark — i.e. exactly when the question
+is worth asking. The guard read as working while being stuck off, and over Denmark it was
+reporting the wrong reason. The flag describes the feed that was *searched*, not whether the
+search succeeded. Now derived from `ais.positions` for the acquisition window, with a test.
+
+**And one the scrubber caught on itself.** A first draft of the regex matched `não corresponde`
+but not `não **têm** correspondência` — negation and noun two words apart — so
+`25% das deteções não têm correspondência AIS` walked straight through. It also missed the
+complement: `75% das deteções têm correspondência` states the same number. Both are now cases in
+`tests/test_tools.py`. The caveat explaining the guard has to use the words "dark-vessel rate" to
+say the report does not quote one, which is why caveats are assembled structurally and never
+scrubbed — running the guard over its own explanation would delete it.
+
+### 34. ⭐ A ten-item sample shown next to the working set gets used as the working set
+
+The first real chain run passed §M4's bar — three distinct tools, Portuguese question,
+Portuguese answer, unprompted hedging — and produced a **wrong answer**. The model called
+`ais_match` six times in batches of ten, then reported the last batch's counts as the scene's.
+
+The cause was mine, not the model's. `detect_vessels`' compacted result carried the full
+`detection_ids` list *and* a bare `sample` of ten positions; the model used the sample. Worse,
+each batched call answered correctly about its slice and nothing in the answer said it was a
+slice — the tool cannot distinguish "tell me about these ten" from "tell me about the scene".
+
+Two fixes, both about making partiality visible rather than about instructing harder:
+
+- the sample key is now named `positions_sample_not_the_working_set`, and the payload carries a
+  `next_step` telling the caller to pass every id in one call;
+- `ais_match`'s result reports `requested`, `scene_detection_totals` and `partial`, plus an
+  explicit warning when a slice is being answered. A result that cannot say "you asked about a
+  sixth of this" is a result that will be over-generalised.
+
+This is the same lesson as finding 21 in a different medium: the failure was invisible in the
+counts, which were all individually correct.
+
+### 35. ⭐ The model retuned the matcher mid-answer, and the tool let it
+
+Finding 34's fix worked — one `ais_match` call with all sixty ids — and the answer was still
+wrong: **7 matched, 53 unmatched** against a hand-checked truth of 45 and 15. The ids were right
+(all sixty, correct scene, none invented), so the tool had been asked something different from
+what I assumed.
+
+It had. §5 puts `radius_m` in `ais_match`'s signature, so the model-facing schema exposed it, so
+the model set it. Measured over the same pixels and the same AIS:
+
+| match radius | matched | dark |
+|---|---|---|
+| 1000 m | 47 | 13 |
+| **500 m — validated** | **45** | **15** |
+| 100 m | 20 | 40 |
+| 50 m | 8 | 52 |
+
+The answer moves by a factor of three across values that all look reasonable in a function call.
+`dark_vessels.sql` already says why in its header — "the radius is the whole boundary between
+matched and dark" — but that reasoning was about not widening it to absorb the azimuth
+displacement. This is the same knob from the other side: a model free to narrow it can
+manufacture darkness, and every intermediate count it prints is internally consistent.
+
+**So the local model's tool schema no longer exposes it.** The §5 Python contract keeps
+`radius_m` and `time_window_min` — an analyst sweeping the tolerance is doing legitimate work,
+and that sweep is how finding 24's 1 km buffer was chosen — but the surface driven by an
+unsupervised 14B model does not get the knob that decides the headline number. Pre-dev already
+measured what this model does when a result fails to satisfy it: it re-calls with tweaked
+arguments, four times. The MCP surface keeps the parameter, because a human is reading each
+call, with the numbers above in the tool description.
+
+Every `ais_match` result now states the tolerance it used, so two counts can never be compared
+without noticing they came from different rules.
+
+**After the fix**, from a Portuguese question with no scene id and no bbox in the prompt:
+`stac_search → detect_vessels → ais_match`, 60 detections, 45 matched, 15 dark, and the fifteen
+unmatched ids it listed are **identical to the database's**, in order, with nothing invented. It
+also hedged unprompted — *"leads para análise adicional … não podem ser consideradas como
+evidências conclusivas"* — and stated no rate.
+
+### 36. ⭐ The loop-breaker fired on its first real outing, and the residue is M5's job
+
+Pre-dev measured this model re-calling `stac_search` four times with tweaked dates when a result
+did not satisfy it. Against real tools it did the same thing in a different place: having
+correctly matched **both** Danish granules (45/15 each), it re-issued both `ais_match` calls with
+byte-identical arguments. The same-tool-same-arguments detector caught the first repeat, told it
+in the transcript that the call had already been made and what came back, and forced an answer on
+the second. Three iterations, not an exhausted context window.
+
+Two things worth carrying into M5. The guard should **not** kill the run on the first repeat —
+re-calling can be correct when a result genuinely fails to satisfy the request, so the first
+strike is information and the second is a stop. And the residue it cannot fix: the final answer
+opened *"das 60 detecções … 45 tiveram correspondência … e 15 não"* and then listed **30**
+unmatched ids across both scenes. Every id was real and every per-scene count was right; the
+model conflated two scenes into one scene's framing while summarising.
+
+That is not fixable by prompting, and it is the argument for §M5's shape: the answer should be
+assembled from the `CorrelationResult` the tools returned, not from the model's recollection of
+them. `draft_intrep` already works that way — its findings are templated from the correlation
+object, which is why section 4 of `make tool-proof` has the arithmetic right and section 3 does
+not.
+
+### 37. `make_interval(mins => …)` will not take a fractional argument
+
+Every named argument of `make_interval` is an integer except `secs`, so a window of 11.0 minutes
+fails to resolve the function rather than rounding — `UndefinedFunction`, at runtime, from a
+query that reads fine. `dark_vessels.sql` already took its window in seconds for this reason; the
+new feed-lookup query did not, and found out.
+
+### 38. "Take the newest scene" is the wrong default when granules come in pairs
+
+Consecutive granules from one Sentinel-1 pass both clip an AOI — the normal case, not an edge
+one. Over the Kattegat the newer of the two (`…34CE`, 05:24:01) covers **1.50 deg²** of the
+requested box and the older (`…BC13`, 05:23:36) covers **0.94**, but the reverse is equally
+possible and nothing in the result would look wrong either way. `correlate` ranks by intersection
+area with the requested bbox and breaks ties by recency.
+
+Deliberately *not* "prefer a scene that already has a detector run", tempting as that is at
+14–20 s a granule: that would make the answer depend on what happened to be computed earlier,
+which is the caching-changes-results failure again, and it would be invisible because the wrong
+answer would still be a real correlation over a real scene.
+
+**Incidental, and worth a second look at some point:** the two Danish granules are disjoint in
+latitude (56.61–57.39 and 55.53–56.59, zero detections within 200 m of each other) and
+independently give **60 detections, 45 matched, 15 dark each** — the same 25% on two separate
+granules. Coincidence in the totals, but it does make the 25% look systematic rather than
+scene-specific, which is consistent with the coastal-clutter reading.
+
+### Performance, M4
+
+| step | time |
+|---|---|
+| `detect_vessels`, run reused from PostGIS | 0.9 s |
+| `detect_vessels`, cold — reads the granule | 14 s (BC13), 20 s (34CE) |
+| `correlate`, warm | 1.6 s |
+| `draft_intrep` with the narrative section | ~10 s |
+| the local model chaining three tools | ~2 min |
+| MCP `initialize` + `tools/list` over stdio | < 1 s |
 
 ---
 

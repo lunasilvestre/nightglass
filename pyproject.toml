@@ -58,6 +58,7 @@ nightglass-mcp = "nightglass.mcp.server:main"
 nightglass-agent = "nightglass.agent.main:main"
 nightglass-corpus = "nightglass.rag.cli:main"
 nightglass-spatial = "nightglass.spatial.cli:main"
+nightglass-tools = "nightglass.tools.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

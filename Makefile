@@ -188,3 +188,25 @@ ask:  ## ask the agent a question (M5). make ask Q="Houve alguma embarcação...
 .PHONY: shell
 shell:  ## shell inside the api container
 	$(COMPOSE) exec api bash
+
+##@ Tools + MCP  (M4)
+
+.PHONY: tools
+tools:  ## the six §5 tools and the active AOI
+	$(COMPOSE) exec api nightglass-tools list
+
+.PHONY: tool-call
+tool-call:  ## one tool, raw JSON. make tool-call T=correlate J='{"bbox":[...],"start":"...","end":"..."}'
+	$(COMPOSE) exec -T -e NIGHTGLASS_AOI=$(AOI) api nightglass-tools call $(T) --json '$(J)'
+
+.PHONY: chain
+chain:  ## let the local model pick and chain tools. make chain Q="Houve alguma...?"
+	$(COMPOSE) exec -T -e NIGHTGLASS_AOI=$(AOI) api nightglass-tools chain "$(Q)"
+
+.PHONY: mcp-tools
+mcp-tools:  ## list the MCP tools over the stdio transport Claude Desktop uses
+	@scripts/mcp-stdio.sh tools/list
+
+.PHONY: tool-proof
+tool-proof:  ## §M4 end to end: MCP over stdio, the local model chaining, the INTREP guard
+	@scripts/tool-proof.sh

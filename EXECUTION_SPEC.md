@@ -451,7 +451,12 @@ At some point he should make a non-trivial change himself. Hands in it beats rea
         median match distance 119 m; azimuth-displacement sign measured, not assumed.
         Unmatched 25% vs the ~5% base rate: the excess is coastal clutter, measured
         via a shoreline-buffer sweep, and stated as a limitation rather than a rate.
-[ ] M4  six tools, MCP server, Claude Desktop + local model both driving it
+[x] M4  six tools, MCP server, Claude Desktop + local model both driving it   ← 2026-08-03
+        MCP over stdio: 7 tools listed and called, protocol 2025-06-18.
+        qwen2.5:14b chained stac_search -> detect_vessels -> ais_match unaided from a
+        Portuguese question; 45 matched / 15 dark, and the 15 ids it reported match the
+        database exactly. correlate reuses recorded detector runs (ids stay stable);
+        draft_intrep refuses a dark rate on BOTH the source and the precision side.
 [ ] M5  LangGraph agent, real interrupt at HIL gate
 [ ] M6  README, diagram, 90-second recording
 [ ] M7  optional extras
