@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -176,6 +177,23 @@ class Settings(BaseSettings):
 
     qdrant_host: str = Field(default="qdrant", alias="QDRANT_HOST")
     qdrant_port: int = Field(default=6333, alias="QDRANT_PORT")
+    qdrant_collection: str = Field(default="nightglass_docs", alias="QDRANT_COLLECTION")
+
+    # M2 document corpus. Two roots, because the two halves of the corpus are
+    # held differently: `corpus/synthetic` is committed (a fresh clone must be
+    # able to reproduce the demo), `data/corpus/normalized` is fetched and
+    # gitignored (some of it carries no reuse licence). Ingest reads both and
+    # cannot tell them apart -- see corpus/README.md.
+    corpus_dir: Path = Field(default=Path("/app/data/corpus"), alias="NIGHTGLASS_CORPUS_DIR")
+    synthetic_dir: Path = Field(
+        default=Path("/app/corpus/synthetic"), alias="NIGHTGLASS_SYNTHETIC_DIR"
+    )
+    rag_top_k: int = Field(default=8, alias="NIGHTGLASS_RAG_TOP_K")
+    # Retrieval score floor. Left unset by default: a threshold picked before
+    # measuring the corpus is a guess, and a wrong one turns answerable
+    # questions into refusals, which is a worse failure than it looks because
+    # it looks like the honesty feature working.
+    rag_min_score: float | None = Field(default=None, alias="NIGHTGLASS_RAG_MIN_SCORE")
 
     ollama_host: str = Field(default="http://ollama:11434", alias="OLLAMA_HOST")
     ollama_chat_model: str = Field(
@@ -199,6 +217,11 @@ class Settings(BaseSettings):
     @property
     def qdrant_url(self) -> str:
         return f"http://{self.qdrant_host}:{self.qdrant_port}"
+
+    @property
+    def corpus_roots(self) -> list[Path]:
+        """Where `make ingest` looks for documents, committed half first."""
+        return [self.synthetic_dir, self.corpus_dir / "normalized"]
 
     def describe(self) -> None:
         """Print resolved config. Never prints a secret — only whether it is set.

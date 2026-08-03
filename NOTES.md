@@ -4,10 +4,10 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
-## → HANDOFF TO M2 (read this first in a fresh session)
+## → HANDOFF TO M3 (read this first in a fresh session)
 
-**M0 and M1 are done, committed and pushed.** `main` is at `55f98d6`. Everything below is
-state a new session cannot infer from the specs or the code.
+**M0, M1 and M2 are done.** Everything below is state a new session cannot infer from the specs
+or the code.
 
 ### Run this first
 
@@ -15,8 +15,27 @@ state a new session cannot infer from the specs or the code.
 cd ~/Documents/dev/nightglass
 make preflight          # tells you the truth about the machine in 5 lines
 make up                 # idempotent; the stack may already be running
-make air-gap-proof      # both halves should pass
+make air-gap-proof      # M1: both halves should pass
+make rag-proof          # M2: ungrounded vs grounded vs refusal
 ```
+
+If `rag-proof` says nothing is indexed, the Qdrant volume was destroyed — `make fetch-corpus &&
+make ingest` rebuilds it in about two minutes, and `fetch-corpus` is cached against
+`data/corpus/raw/` so it re-downloads nothing.
+
+### What M2 left for M3
+
+- **The corpus is done and does not need revisiting.** 60 documents, 1,814 chunks. Adding a
+  public document is one entry in `corpus/sources.yaml`; adding a memo is one file in
+  `corpus/synthetic/`. Both are followed by `make ingest`, which is idempotent.
+- **`doc_search` is the first of §5's six tools and it is finished** — as a CLI, as
+  `POST /tools/doc_search`, and as `DocumentIndex.search`. M4 wraps the same function for MCP
+  rather than reimplementing it.
+- **Do not add Madeira or Azores detection figures to the corpus** without also changing the
+  refusal test. That gap is the only thing making the refusal demonstration mean anything, and
+  it is documented in `corpus/README.md`.
+- **The GFW per-detection `matched` flag question is now the top open item** — see "Open" below.
+  It was M2's second-priority item and nothing in M2 touched it.
 
 ### ⚠️ Host machine state that is NOT in the repo
 
@@ -28,33 +47,23 @@ make air-gap-proof      # both halves should pass
 - The enclave volumes hold both models already (9.5 GB). Do **not** run `make clean` casually;
   it destroys them.
 
-### ⚠️ M2's real prerequisite: the document corpus does not exist
+### ✅ RESOLVED AT M2 — the document corpus exists
 
-`data/` holds SAR and AIS only. **There are zero documents on disk.** EXECUTION_SPEC §3.3 wants
-Copernicus EMS activation reports (EMSR861 and EMSR864 are already familiar), public IMO
-circulars and EU shipping sanctions notices, topped up to 40–60 with short INTREP/INTSUM-style
-memos about the AOI, each marked `UNCLASSIFIED // SYNTHETIC` in header **and** metadata.
+Was: *"`data/` holds SAR and AIS only. There are zero documents on disk."* Now 60 documents,
+39 fetched and 21 written. Composition, licences and the reasoning are in `corpus/README.md`.
+The one structural decision worth carrying forward: **the corpus has two halves held
+differently** — `corpus/synthetic/` is committed because a fresh clone must reproduce the demo
+and there is no URL to fetch an invented memo from; `data/corpus/` is fetched and gitignored
+because some publishers grant no reuse licence.
 
-Assembling it is host-side work that needs the internet, and it is the first M2 task, not a
-detail to discover halfway through writing the ingest pipeline. Suggested landing spot
-`data/corpus/`, which `.gitignore` already excludes via `data/*`.
-
-Two things already settled, so don't re-litigate them:
-- **bge-m3 is the embedding model and the choice is one-way** — changing it means re-embedding
-  everything. Cross-lingual retrieval is verified: PT↔EN same meaning **0.842**, PT↔unrelated
-  PT **0.283**. A Portuguese query will retrieve an English corpus.
-- **Classification markings must propagate from source document into the report** (§7), so
-  capture them at ingest. `Chunk.classification` already exists in `schemas.py`.
-
-### The single most useful thing to carry into M2
-
-Asked *"o que é uma embarcação escura?"* with no retrieved context, qwen2.5:14b answered that
-it is a boat **"pintado em cores escuras"** — it read the central term of this entire project
-as a description of paint colour. Fluent, confident, domain-wrong.
-
-That is M2's whole argument, as a transcript rather than an assertion, and it is the README's
-before/after: same question, ungrounded vs grounded-with-citations. Beats any retrieval
-hit-rate number. See finding 11.
+Both things the old handoff said not to re-litigate held up:
+- **bge-m3 was the right one-way call.** Cross-lingual retrieval works in *both* directions on
+  the real corpus, not just the sentence-pair test: an English query about AIS deduplication
+  ranks a Portuguese INTSUM first at **0.714**, above the English IMO material at 0.616.
+- **Classification propagation is implemented structurally**, not as a prompt instruction. The
+  marking on an answer is computed from the chunks it actually *cited* — `UNCLASSIFIED //
+  SYNTHETIC` when doctrine memos are cited, plain `UNCLASSIFIED` when only IMO/EU sources are.
+  Verified both ways.
 
 ### Where things live
 
@@ -63,24 +72,33 @@ hit-rate number. See finding 11.
 | the enclave, and why it looks like that | `docker-compose.yml` — read the header comment |
 | AOI resolution; the only place a bbox is named | `src/nightglass/config.py` |
 | §5 tool contracts, with provenance attached | `src/nightglass/schemas.py` |
-| what M0/M1 actually proved | `README.md` architecture + air-gap proof sections |
-| gotchas that cost time | findings 8–14 below |
+| what M0/M1/M2 actually proved | `README.md` architecture, air-gap proof, grounded-answers sections |
+| the corpus: composition, licences, the deliberate gap | `corpus/README.md` |
+| gotchas that cost time | findings 8–20 below |
 
 ### Open, in priority order
 
-1. **Document corpus** — blocks M2 entirely. See above.
-2. **GFW per-detection `matched` flags** — the public API returned *gridded aggregate counts*,
+1. **GFW per-detection `matched` flags** — the public API returned *gridded aggregate counts*,
    not per-detection records. §3.1 wants unmatched detections specifically. If those flags are
    only in the paper's BigQuery tables, the Portuguese reference layer degrades to "GFW saw N
    here, my detector saw M" — still a real cross-check, weaker than the spec assumes.
    **Resolve early in M3**, not late.
-3. **A genuinely cold `make pull-models`** — it has only ever run against a volume that already
+2. **A genuinely cold `make pull-models`** — it has only ever run against a volume that already
    held the blobs, so it verified digests rather than downloading. Everything of ours is proven;
    ollama's downloader is not. Worth one cold run before M6 claims reproducibility.
-4. **FastMCP 3.4.5 still accepts `transport="sse"`**, but `http`/`streamable-http` is the modern
+   `make fetch-corpus` does not have this problem: it has been run cold, all 39 documents, zero
+   failures, and its cache is per-file so a partial run resumes.
+3. **FastMCP 3.4.5 still accepts `transport="sse"`**, but `http`/`streamable-http` is the modern
    path. Revisit at M4 when Claude Desktop attaches for real.
-5. **Portuguese AOI still deliberately undecided** between Lisbon and Leixões — the recorder
-   covers both. Decide after the scenes land, not before.
+4. **Portuguese AOI still deliberately undecided** between Lisbon and Leixões — the recorder
+   covers both. Decide after the scenes land, not before. INTSUM 2026/071 in the corpus lays out
+   the trade (Leixões has three overlapping S1 paths against Lisbon's two, so ~50% more
+   acquisitions; Lisbon has the richer estuary geometry and the EMSA narrative).
+5. **Citation verification proves a cited chunk exists, not that it supports the claim.** A
+   claim citing a real chunk that does not actually say what the claim says would survive. The
+   fix is an entailment pass per claim against its cited span alone. Noted in the README's
+   limitations and three-weeks list; not urgent, but it is the honest boundary of the current
+   guarantee.
 
 ### Conventions worth keeping
 
@@ -810,6 +828,179 @@ data/interim/   23 MB                ais_kattegat_20260717_0513-0534.csv — the
 
 ---
 
+## M2 — done 2026-08-03. 60 documents, 1,814 chunks, cited answers and a real refusal.
+
+`make rag-proof` runs the whole demonstration. Both "done when" conditions pass: claims map to
+retrievable chunk IDs, and an unanswerable question refuses instead of guessing.
+
+### What M2 built
+
+```
+corpus/sources.yaml         manifest of 39 public documents — URLs and licences, not documents
+corpus/synthetic/           21 INTREP/INTSUM memos, UNCLASSIFIED // SYNTHETIC, committed
+corpus/README.md            composition, licence handling, the deliberate refusal gap
+src/nightglass/rag/         fetch · extract · chunking · embed · index · answer · cli
+docker/Dockerfile           new `fetcher` stage: runtime + poppler-utils, ONLINE only
+docker-compose.yml          corpus-fetcher service (provision network, profile-gated)
+                            x-corpus read-only mounts on api, mcp, agent
+scripts/rag-proof.sh        §M2's proof, as a repeatable command
+tests/test_rag.py           33 tests — markings, chunk identity, citation verification
+```
+
+### Corpus composition
+
+| Publisher | Docs | Chunks |
+|---|---|---|
+| European Union (EUR-Lex) | 8 | 860 |
+| International Maritime Organization | 10 | 488 |
+| ICEYE Ltd | 17 | 357 |
+| NIGHTGLASS synthetic | 21 | 96 |
+| Copernicus EMS | 4 | 13 |
+
+ICEYE product documentation was Nelson's suggestion mid-build and was the right call: it is the
+most on-point technical text available anywhere for this project, and it comes from the vendor
+whose product this shadows. Fetched from the docs' own git source **at a pinned commit** rather
+than by scraping the rendered site — the published site is `latest` and moves, and a corpus that
+cannot be rebuilt byte-for-byte is not reproducible.
+
+### 15. ⭐ pypdf mangles EUR-Lex PDFs and pdftotext does not — 676 occurrences vs 0
+
+The first extractor used `pypdf`, being pure Python and one dependency instead of a native one.
+On the Official Journal PDFs it produces:
+
+```
+REGUL A TIONS
+C OUNCIL REGUL A TION (EU) 2017/1509
+concer ning restr ictiv e measures against the Democratic P eople's Republic of K orea
+Ha ving regar d to the T reaty on the Functioning of the European Union
+```
+
+Spurious spaces inside words, from how those files encode character spacing. Counting the
+artefact (`\b[A-Za-z]{2,} \b(ing|tion|ment)\b`) across two regulations: **pypdf 676 and 114,
+pdftotext 0 and 0.** poppler also gets two-column Official Journal reading order right.
+
+Mangled words would poison the embeddings *and* appear inside quoted evidence, which is the
+worse half — a citation that reads as damaged discredits the whole product.
+
+So poppler it is, installed **only in the `fetcher` image stage**. The enclave runtime has no
+PDF parser, because it never sees a PDF: it reads normalised markdown and nothing else.
+
+⚠️ **The check that nearly hid this.** My first mangling count used
+`\b[A-Za-z]{1,3} [a-z]{1,3}\b(ing|tion)` and reported 15 and 229 hits *on the clean pdftotext
+output*, which looked like the fix had failed. It hadn't — that regex matches "and having",
+"for making", "ent using". The signature of mangling is a **word boundary before** the fragment,
+not merely a short word near one. Nearly reverted a correct fix on the strength of a bad grep.
+
+### 16. Running-header stripping: two bugs, and a deliberate trade
+
+Legal PDFs repeat a header on every page. Left in, "Official Journal of the European Union"
+becomes one of the strongest signals in the document, which is exactly backwards.
+
+Detection is a frequency count on a **digit-blind** normalisation, so `L 229/2`, `L 229/3` and
+`L 229/4` collapse to one key `L #/#`. An exact-match count sees three distinct strings and
+strips none of them.
+
+Two bugs found by running it, in order:
+
+1. **Margins counted one way, removed another.** The frequency table was built over the first
+   three *non-empty* lines of each page; removal then tested the first three *raw* line indices.
+   In a PDF the header is almost always preceded by blank lines, so the two sets barely
+   overlapped. Result: 17 surviving copies of `A 29/Res.1106` in one 35k-character resolution.
+2. **A three-line margin is too small for these documents.** The IMO resolutions carry a
+   **six-line** running header — document symbol, page number, resolution number, adoption date,
+   and a two-line title. A three-line window sees the top half and lets the rest through.
+
+Now `_MARGIN = 6` at a 0.3 page fraction: 17 copies → 1, and both load-bearing clauses survive.
+
+**The trade, stated because it is real:** the digit-blind key is what makes detection work and
+is also what makes it possible to delete body text that differs only in its numbers ("Article 5",
+"Article 6"). The bound is that a running head can never be more than **a third of a page**, so
+the mistake stays confined to page edges. Both the property and its cost have tests.
+
+### 17. ⭐ Finding 11's transcript does not reproduce — and the finding survives anyway
+
+M1 recorded qwen2.5:14b answering that an *embarcação escura* is a boat *"pintado em cores
+escuras"*, and called it M2's whole argument. Re-run at M2, four samples, three at the default
+temperature and one at 0:
+
+- *"não tem um significado específico ou comum na náutica"* — the term has no established
+  meaning (×2)
+- *"uma embarcação pintada de preto ou operando à noite sem luzes"* — offered as a guess
+- *"Descrição Visual: se refere à aparência física da embarcação"* — the paint reading, but
+  hedged as one interpretation among several
+
+The paint-colour answer is **one sample from a distribution**, not a reproducible behaviour, and
+NOTES presented it as though it were.
+
+The underlying claim is unharmed and is arguably better stated now: **the model has no prior for
+the central term of this project.** Sometimes it says so, sometimes it guesses at paint. Neither
+gets an analyst to the operational meaning, and neither is hedged in a way a reader would catch.
+The README now says exactly that, and shows the "no established meaning" sample because it is
+the one that reproduces.
+
+Generalises, and it is the more useful lesson: **a single striking transcript is an anecdote.**
+Before a captured output becomes the argument in a README, run it enough times to know whether
+it is the behaviour or the sample.
+
+### 18. Licence as an enforced field, not a comment
+
+ICEYE and IMO both publish these documents openly and **neither states a reuse licence**, so
+default copyright applies. Fetching one onto the machine that reads it is not redistribution;
+committing it to a public repository is.
+
+Rather than trust the top-level `.gitignore` to stay correct forever, entries carry
+`redistributable: false`, and the fetcher **writes a `.gitignore` containing `*` into the corpus
+root and refuses to write restricted material without it**. The guarantee is local to the
+directory holding the material and survives someone reorganising ignore rules elsewhere.
+
+Same instinct as `Match.source_is_ground_truth` at M0: when a constraint matters, make it a
+field the code checks rather than a sentence someone has to remember.
+
+### 19. No retrieval score threshold, because the measurement says not to
+
+The obvious way to make a RAG system refuse is a similarity floor. Measured over 11 probe
+questions against this corpus:
+
+| | best-chunk cosine |
+|---|---|
+| answerable (6 questions) | **0.543 – 0.708** |
+| unanswerable (5 questions) | **0.440 – 0.497** |
+
+The bands do not overlap — but they are **0.046 apart**. That is far too narrow to hang a
+refusal on, and the failure mode of a threshold set slightly high is nasty: answerable questions
+start refusing, which looks exactly like the honesty feature working correctly.
+
+So `NIGHTGLASS_RAG_MIN_SCORE` exists and is **unset**. Refusal is decided by citation
+verification, which needs no threshold to be right: retrieve, generate, then check every cited
+chunk ID against what was actually retrieved, drop fabricated ones, discard claims left with
+none, and refuse if nothing survives. The model's own `supported: true` is an opinion and is not
+decisive.
+
+### 20. Copernicus EMS has no listing endpoint, and its pages are a JS app
+
+The activation pages at `mapping.emergency.copernicus.eu/activations/EMSR861/` render entirely
+client-side: the served HTML contains navigation and a cookie banner, and none of the text.
+
+The data is at a public JSON API found in the site's JS bundle:
+
+```
+https://rapidmapping.emergency.copernicus.eu/backend/dashboard-api/public-activations/?code=EMSR861
+```
+
+⚠️ **`code` is mandatory** — every listing form 404s with
+`{"detail": "No Activation matches the given query."}`. There is no way to enumerate
+activations, so the four in the corpus came from scanning **EMSR840–EMSR915** individually
+(65 of 76 codes resolved) and filtering for Portugal. EMSR861 and EMSR864 — the two §3.3 names —
+both turn out to be Portugal activations, and EMSR842 and EMSR908 are the only other
+Portugal-touching ones in that range.
+
+Worth being honest about what these contribute: Copernicus EMS Rapid Mapping is disaster
+response, so there is **no maritime security content in any of them**. They earn their place as
+real, dated, citable environmental context over the demo AOI — which is what INTREP 2026/066
+cites them for, and nothing more.
+
+---
+
 ## Decisions
 
 | Decision | Choice | Rationale |
@@ -820,6 +1011,11 @@ data/interim/   23 MB                ais_kattegat_20260717_0513-0534.csv — the
 | **AIS ingest transport** | S3 REST against `aisdata.ais.dk.s3.eu-central-1.amazonaws.com` | Guide's `web.ais.dk` host is dead; official page is JS-rendered and unscrapeable. S3 REST is public, paginates, and needs no auth. See correction 1. |
 | **AIS dedup key** | `(MMSI, timestamp, lat, lon)` | 71% of rows are rebroadcast duplicates (correction 7). Must happen before matching. |
 | **AIS time handling** | Parse as UTC, no conversion | Settled by DST test (correction 5). |
+| **Corpus is split, not one directory** | `corpus/synthetic/` committed · `data/corpus/` fetched + gitignored | Two different problems. A fresh clone must reproduce the demo, and there is no URL to fetch an invented memo from — so the memos are committed. Some publishers grant no reuse licence — so their documents are fetched, never vendored. One front-matter format for both, so ingest cannot tell them apart. |
+| **PDF text via poppler `pdftotext`** | native dependency, `fetcher` image stage only | pypdf mangles EUR-Lex Official Journal PDFs: 676 and 114 spurious in-word spaces against 0 for pdftotext (finding 15). Confined to the online stage — the enclave never sees a PDF. |
+| **ICEYE docs at a pinned commit** | `6c42568…`, not the rendered `latest` site | A corpus that cannot be rebuilt byte-for-byte is not reproducible, and the published site moves. `source_url` still points at the human-readable page, which is what a citation should open. |
+| **Refusal by citation verification, not a score floor** | `NIGHTGLASS_RAG_MIN_SCORE` unset | Measured bands are 0.046 apart (finding 19). A threshold set slightly high turns answerable questions into refusals, which is indistinguishable from the feature working. |
+| **Chunk id = `{doc_id}#{ordinal:04d}`** | positional, not content-hashed | Qdrant point IDs derive from it, so re-ingest updates in place. A content hash would orphan every citation already written down the moment a typo upstream was fixed. |
 
 ### Data on disk
 

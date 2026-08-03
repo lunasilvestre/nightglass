@@ -415,6 +415,7 @@ At some point he should make a non-trivial change himself. Hands in it beats rea
 
 ```
 [~] PRE_DEV_GUIDE.md checklist complete   ← real data on disk before M2
+    [x] document corpus assembled — 39 fetched + 21 synthetic, see corpus/README.md
     [x] environment verified (GPU, docker, GDAL, python geo stack)
     [x] Portuguese S1 coverage verified — top risk retired
     [x] DMA source relocated, 2 days downloaded (1.4 GB), schema verified
@@ -426,7 +427,7 @@ At some point he should make a non-trivial change himself. Hands in it beats rea
     [ ] aisstream recorder running ← hard deadline, stable before Fri 7 Aug 07:00 UTC
 [x] M0  scaffold, compose up, healthchecks, NOTES.md   ← 5/5 containers healthy 2026-08-03
 [x] M1  offline inference + failed-egress proof captured   ← 2026-08-03, in README
-[ ] M2  RAG with citations + refusal path
+[x] M2  RAG with citations + refusal path   ← 2026-08-03, 60 docs / 1,814 chunks, in README
 [ ] M3  PostGIS, dark-vessel SQL hand-checked against the ~5% base rate
 [ ] M4  six tools, MCP server, Claude Desktop + local model both driving it
 [ ] M5  LangGraph agent, real interrupt at HIL gate

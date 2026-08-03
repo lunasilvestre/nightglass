@@ -43,6 +43,28 @@ ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["uvicorn", "nightglass.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 
+# The corpus fetcher. ONLINE, and the only image here that is: it runs on the
+# `provision` network to download the public half of the document corpus, in the
+# same way `model-puller` runs there to download weights.
+#
+# poppler-utils is installed HERE and not in `runtime`, deliberately. PDF text
+# extraction is a provisioning-time concern -- the enclave only ever reads
+# normalised markdown, so giving it a PDF parser would be giving it a capability
+# it has no use for. It is also a measured choice over a pure-Python parser:
+# pypdf inserts spurious spaces inside words on the EUR-Lex Official Journal
+# PDFs ("REGUL A TIONS", "concer ning restr ictiv e"), 676 occurrences in one
+# regulation against 0 for pdftotext, and mangled words would poison the
+# embeddings and appear inside quoted evidence.
+FROM runtime AS fetcher
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends poppler-utils \
+ && rm -rf /var/lib/apt/lists/*
+USER nightglass
+ENTRYPOINT ["nightglass-corpus"]
+CMD ["fetch"]
+
+
 # Test deps are baked into a separate stage rather than pip-installed at test
 # time, because inside the enclave there is no pypi to install from -- the first
 # attempt at `make test` failed with "Temporary failure in name resolution",

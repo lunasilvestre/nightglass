@@ -139,6 +139,47 @@ class Claim(BaseModel):
         return bool(self.scene_ids or self.detection_ids or self.chunk_ids)
 
 
+class GroundedAnswer(BaseModel):
+    """What §M2 returns: an answer whose every claim maps to retrieved chunks.
+
+    Two fields carry the milestone's whole argument.
+
+    `answered` is decided **after** the model has spoken, not by it. Every claim
+    is checked against the set of chunk IDs actually retrieved, citations the
+    model invented are moved to `dropped_citations`, and claims left with no
+    surviving reference are discarded. If nothing survives, this is a refusal
+    regardless of how confident the generated text was. A prompt instruction not
+    to make things up is a request; this is a check.
+
+    `classification` is the combined marking of the chunks actually cited, so a
+    report drawing on synthetic material says `UNCLASSIFIED // SYNTHETIC`
+    whether or not the drafter remembers to. §7's propagation requirement,
+    computed rather than asserted.
+    """
+
+    question: str
+    answered: bool
+    claims: list[Claim] = Field(default_factory=list)
+    refusal: str | None = None
+    retrieved: list[Chunk] = Field(default_factory=list)
+    classification: str = "UNCLASSIFIED"
+    dropped_citations: list[str] = Field(default_factory=list)
+    model: str = ""
+    generated_at: datetime | None = None
+
+    @property
+    def cited_chunk_ids(self) -> list[str]:
+        seen: dict[str, None] = {}
+        for c in self.claims:
+            for cid in c.chunk_ids:
+                seen[cid] = None
+        return list(seen)
+
+    @property
+    def cited_documents(self) -> list[str]:
+        return list(dict.fromkeys(cid.split("#", 1)[0] for cid in self.cited_chunk_ids))
+
+
 class INTREP(BaseModel):
     """The drafted report. Marked not-releasable until the M5 human gate passes."""
 

@@ -28,6 +28,7 @@ services = [
   "qdrant-client>=1.12",
   "psycopg[binary]>=3.2",
   "ollama>=0.3",
+  "pyyaml>=6.0",       # corpus front-matter and sources.yaml
 ]
 spatial = [           # M3
   "rasterio>=1.4",
@@ -48,6 +49,7 @@ dev = [
 [project.scripts]
 nightglass-mcp = "nightglass.mcp.server:main"
 nightglass-agent = "nightglass.agent.main:main"
+nightglass-corpus = "nightglass.rag.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -55,6 +57,15 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 src = ["src", "tests"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares request parameters by CALLING Body()/Query()/Depends() in
+# argument defaults. That is the framework's declaration idiom, not the
+# shared-mutable-default bug B008 exists to catch. Configured once here rather
+# than noqa'd at each of the six §5 tool endpoints.
+extend-immutable-calls = [
+  "fastapi.Body", "fastapi.Query", "fastapi.Path", "fastapi.Depends", "fastapi.File",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

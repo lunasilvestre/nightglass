@@ -1,0 +1,318 @@
+# NIGHTGLASS — the real half of the document corpus (EXECUTION_SPEC §3.3).
+#
+# This file is a MANIFEST, not the documents. Nothing here is vendored into the
+# repository: `make fetch-corpus` downloads each entry at provisioning time into
+# `data/corpus/`, which is gitignored. Three reasons, in order of importance:
+#
+#   1. LICENCE. Some publishers below grant no reuse licence at all (see
+#      `redistributable: false`). Fetching a public document onto the machine
+#      that will read it is not redistribution; committing it to a public git
+#      repository is. The flag is machine-readable rather than a comment so the
+#      fetcher can enforce it -- entries marked false may only ever be written
+#      to gitignored paths, and `make fetch-corpus` fails loudly if that is
+#      violated rather than quietly doing the wrong thing.
+#   2. HONESTY OF PROVENANCE. §7 requires every claim to be traceable to a
+#      source. A URL plus a sha256 recorded at fetch time is traceable; a text
+#      file of unknown vintage sitting in `data/` is not.
+#   3. It is the same provisioning/operation split as `make pull-models`:
+#      acquisition is online and explicit, operation is offline and sealed.
+#
+# The synthetic half of the corpus lives in `corpus/synthetic/` and IS committed
+# --- it has to be, or a fresh clone cannot reproduce the demo, and there is no
+# URL to fetch an invented memo from.
+#
+# ---------------------------------------------------------------------------
+# Adding a source: append an item to the right group, or add a group. The only
+# required per-item fields are `doc_id`, `title` and `path`. `doc_id` is the
+# stable citation key an INTREP will carry, so treat it as an identifier, not a
+# label -- renaming one orphans every chunk already indexed under it.
+
+version: 1
+
+groups:
+
+  # ---------------------------------------------------------------------------
+  # ICEYE product documentation
+  # ---------------------------------------------------------------------------
+  # NIGHTGLASS is deliberately shaped as the open-source shadow of ICEYE Ocean
+  # Vision Detect, so the vendor's own SAR documentation is the most on-point
+  # technical text available anywhere in this corpus: imaging geometry, azimuth,
+  # radiometric calibration, geolocation accuracy, product levels. It is also
+  # what makes a question like "why does a moving ship appear displaced?"
+  # answerable from sources rather than from model priors.
+  #
+  # Fetched from the documentation's own git source at a PINNED COMMIT rather
+  # than by scraping the rendered site. The published site is `latest` and moves;
+  # a commit sha does not, and an air-gapped system whose corpus cannot be
+  # rebuilt byte-for-byte is not reproducible. `source_url` still points at the
+  # human-readable page, because that is what an analyst following a citation
+  # would actually open.
+  - publisher: ICEYE Ltd
+    doc_type: technical-documentation
+    format: markdown
+    language: en
+    classification: UNCLASSIFIED
+    # The repository is public and carries no LICENSE file, and the API reports
+    # no licence. Absent an explicit grant, default copyright applies: readable,
+    # not redistributable.
+    licence: >-
+      (c) ICEYE Ltd. Public product documentation; no open licence is stated by
+      the publisher. Fetched locally for retrieval, never redistributed by this
+      repository.
+    redistributable: false
+    fetch_base: https://raw.githubusercontent.com/iceye-ltd/product-documentation/6c4256836fd03a1d0fb88c48f9efa1f982e1f28c/docs/
+    source_base: https://sar.iceye.com/latest/
+    items:
+      - doc_id: iceye-sar-overview
+        title: An Overview of SAR Imaging
+        path: foundations/OverviewOfSAR/overviewOfSAR.md
+        page: foundations/OverviewOfSAR/overviewOfSAR/
+      - doc_id: iceye-sar-simple-imaging
+        title: A Simple Form of Imaging
+        path: foundations/OverviewOfSAR/simpleFormOfImaging.md
+        page: foundations/OverviewOfSAR/simpleFormOfImaging/
+      - doc_id: iceye-sar-range-resolution
+        title: Range Resolution
+        path: foundations/OverviewOfSAR/rangeResolution.md
+        page: foundations/OverviewOfSAR/rangeResolution/
+      - doc_id: iceye-sar-innovation
+        title: The Synthetic Aperture Innovation
+        path: foundations/OverviewOfSAR/theInnovation.md
+        page: foundations/OverviewOfSAR/theInnovation/
+      - doc_id: iceye-sar-processing
+        title: SAR Processing
+        path: foundations/OverviewOfSAR/sarProcessing.md
+        page: foundations/OverviewOfSAR/sarProcessing/
+      - doc_id: iceye-sar-noise-speckle
+        title: Noise and Speckle in SAR Imagery
+        path: foundations/OverviewOfSAR/noise.md
+        page: foundations/OverviewOfSAR/noise/
+      - doc_id: iceye-geospatial-accuracy
+        title: Geospatial Accuracy
+        path: foundations/geospatialAccuracy.md
+        page: foundations/geospatialAccuracy/
+      - doc_id: iceye-radiometric-calibration
+        title: Radiometric Calibration
+        path: foundations/radiometric.md
+        page: foundations/radiometric/
+      - doc_id: iceye-slant-to-ground
+        title: Slant Range to Ground Range Conversion
+        path: foundations/slantToGround.md
+        page: foundations/slantToGround/
+      - doc_id: iceye-geospatial-validation
+        title: Geospatial Validation
+        path: foundations/validation/geospatialValidation.md
+        page: foundations/validation/geospatialValidation/
+      - doc_id: iceye-sar-glossary
+        title: Terminology, Acronyms and Symbols
+        path: glossary.md
+        page: glossary/
+      - doc_id: iceye-product-introduction
+        title: Data Product Specification — Introduction
+        path: productspecification/introduction.md
+        page: productspecification/introduction/
+      - doc_id: iceye-imaging-modes
+        title: Imaging Modes
+        path: productspecification/imagingmodes.md
+        page: productspecification/imagingmodes/
+      - doc_id: iceye-data-products
+        title: Data Products
+        path: productspecification/dataproducts.md
+        page: productspecification/dataproducts/
+      - doc_id: iceye-tasking
+        title: Tasking
+        path: productspecification/tasking.md
+        page: productspecification/tasking/
+      - doc_id: iceye-product-metadata
+        title: Product Metadata
+        path: productFormats/metadata.md
+        page: productFormats/metadata/
+
+  - publisher: ICEYE Ltd
+    doc_type: technical-documentation
+    format: pdf
+    language: en
+    classification: UNCLASSIFIED
+    licence: >-
+      (c) ICEYE Ltd. Public product documentation; no open licence is stated by
+      the publisher. Fetched locally for retrieval, never redistributed by this
+      repository.
+    redistributable: false
+    fetch_base: https://github.com/iceye-ltd/product-documentation/releases/download/additional-documents/
+    items:
+      - doc_id: iceye-data-product-specification-607
+        title: ICEYE Data Product Specification, version 6.0.7
+        path: ICEYEDataProductSpecification607.pdf
+
+  # ---------------------------------------------------------------------------
+  # IMO — what AIS is, and what a ship is obliged to do with it
+  # ---------------------------------------------------------------------------
+  # The load-bearing group for this whole project. "Dark vessel" only means
+  # something because there is a standing obligation to transmit; A.1106(29) is
+  # where that obligation and its narrow exceptions are actually written down.
+  # An assistant that cannot cite this is asserting the domain, not sourcing it.
+  - publisher: International Maritime Organization
+    doc_type: regulation
+    format: pdf
+    language: en
+    classification: UNCLASSIFIED
+    licence: >-
+      (c) International Maritime Organization. Published resolutions from the
+      IMO Knowledge Centre index; no open licence is stated. Fetched locally for
+      retrieval, never redistributed by this repository.
+    redistributable: false
+    fetch_base: https://wwwcdn.imo.org/localresources/en/KnowledgeCentre/IndexofIMOResolutions/
+    items:
+      - doc_id: imo-a1106-29-ais-operational-use
+        title: >-
+          Resolution A.1106(29) — Revised Guidelines for the Onboard Operational
+          Use of Shipborne Automatic Identification Systems (AIS)
+        path: AssemblyDocuments/A.1106(29).pdf
+      - doc_id: imo-a917-22-ais-guidelines
+        title: >-
+          Resolution A.917(22) — Guidelines for the Onboard Operational Use of
+          Shipborne Automatic Identification Systems (AIS)
+        path: AssemblyDocuments/A.917(22).pdf
+      - doc_id: imo-a956-23-ais-amendments
+        title: Resolution A.956(23) — Amendments to the AIS Operational Guidelines
+        path: AssemblyDocuments/A.956(23).pdf
+      - doc_id: imo-msc74-69-performance-standards
+        title: >-
+          Resolution MSC.74(69) — Adoption of New and Amended Performance
+          Standards (Annex 3: shipborne AIS)
+        path: MSCResolutions/MSC.74(69).pdf
+      - doc_id: imo-a1078-28-lrit-continuity
+        title: Resolution A.1078(28) — Continuity of Service of the LRIT System
+        path: AssemblyDocuments/A.1078(28).pdf
+      - doc_id: imo-msc202-81-lrit-solas
+        title: >-
+          Resolution MSC.202(81) — SOLAS Amendments Introducing Long-Range
+          Identification and Tracking of Ships
+        path: MSCResolutions/MSC.202(81).pdf
+      - doc_id: imo-msc210-81-lrit-standards
+        title: >-
+          Resolution MSC.210(81) — Performance Standards and Functional
+          Requirements for LRIT
+        path: MSCResolutions/MSC.210(81).pdf
+      - doc_id: imo-msc263-84-lrit-revised
+        title: Resolution MSC.263(84) — Revised Performance Standards for LRIT
+        path: MSCResolutions/MSC.263(84).pdf
+      - doc_id: imo-a1155-32-port-state-control
+        title: Resolution A.1155(32) — Procedures for Port State Control, 2021
+        path: AssemblyDocuments/A.1155(32).pdf
+      - doc_id: imo-a1069-28-illicit-maritime-activity
+        title: >-
+          Resolution A.1069(28) — Prevention and Suppression of Piracy, Armed
+          Robbery Against Ships and Illicit Maritime Activity
+        path: AssemblyDocuments/A.1069(28).pdf
+
+  # ---------------------------------------------------------------------------
+  # EU law — the AIS obligation inside EU waters, and switching it off as an act
+  # ---------------------------------------------------------------------------
+  # 2002/59/EC Article 6 is the "shall maintain it in operation at all times"
+  # clause. 2023/1214 is the one that names AIS interruption as sanctionable
+  # conduct in its own right, which is precisely the distance between "a gap in
+  # the data" and "a reportable event".
+  - publisher: European Union
+    doc_type: regulation
+    format: pdf
+    language: en
+    classification: UNCLASSIFIED
+    licence: >-
+      (c) European Union, 1998-2026. Reuse authorised under Commission Decision
+      2011/833/EU provided the source is acknowledged. Only European Union
+      legislation printed in the paper Official Journal is deemed authentic.
+    redistributable: true
+    fetch_base: "https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:"
+    source_base: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:"
+    items:
+      - doc_id: eu-2002-59-vessel-traffic-monitoring
+        title: >-
+          Directive 2002/59/EC — Community Vessel Traffic Monitoring and
+          Information System
+        path: 32002L0059
+        page: 32002L0059
+      - doc_id: eu-2009-16-port-state-control
+        title: Directive 2009/16/EC — Port State Control
+        path: 32009L0016
+        page: 32009L0016
+      - doc_id: eu-725-2004-ship-port-security
+        title: >-
+          Regulation (EC) No 725/2004 — Enhancing Ship and Port Facility
+          Security
+        path: 32004R0725
+        page: 32004R0725
+      - doc_id: eu-2005-35-ship-source-pollution
+        title: Directive 2005/35/EC — Ship-Source Pollution and Penalties for Infringements
+        path: 32005L0035
+        page: 32005L0035
+      - doc_id: eu-1406-2002-emsa
+        title: >-
+          Regulation (EC) No 1406/2002 — Establishing the European Maritime
+          Safety Agency
+        path: 32002R1406
+        page: 32002R1406
+      - doc_id: eu-833-2014-restrictive-measures
+        title: >-
+          Council Regulation (EU) No 833/2014 — Restrictive Measures in View of
+          Russia's Actions Destabilising the Situation in Ukraine
+        path: 32014R0833
+        page: 32014R0833
+      - doc_id: eu-269-2014-restrictive-measures
+        title: >-
+          Council Regulation (EU) No 269/2014 — Restrictive Measures in Respect
+          of Actions Undermining Ukraine's Territorial Integrity
+        path: 32014R0269
+        page: 32014R0269
+      - doc_id: eu-2023-1214-ais-and-sts-measures
+        title: >-
+          Council Regulation (EU) 2023/1214 — Amending Regulation 833/2014
+          (ship-to-ship transfer notification and AIS interruption measures)
+        path: 32023R1214
+        page: 32023R1214
+
+  # ---------------------------------------------------------------------------
+  # Copernicus EMS — real activations over the Portuguese AOI
+  # ---------------------------------------------------------------------------
+  # Not maritime-security documents, and included knowing that. What they give
+  # the corpus is real, dated, citable environmental context for the demo AOI:
+  # what the sea state and the coast were doing, from an EU source an analyst
+  # would actually accept. EMSR861 and EMSR864 are the two named in §3.3;
+  # EMSR842 and EMSR908 are the other two Portugal-touching activations found by
+  # scanning the public activation API (EMSR840-EMSR915), so the selection is
+  # a filter over the catalogue rather than a hand-picked pair.
+  #
+  # Fetched as JSON from the activation API and rendered to a narrative memo --
+  # the human-facing pages are a JavaScript-rendered SPA whose HTML contains
+  # none of the text.
+  - publisher: Copernicus Emergency Management Service
+    doc_type: activation-report
+    format: copernicus-ems-activation
+    language: en
+    classification: UNCLASSIFIED
+    licence: >-
+      (c) European Union, Copernicus Emergency Management Service. Free, full and
+      open access under the Copernicus data policy, with attribution.
+    redistributable: true
+    fetch_base: "https://rapidmapping.emergency.copernicus.eu/backend/dashboard-api/public-activations/?code="
+    source_base: "https://mapping.emergency.copernicus.eu/activations/"
+    items:
+      - doc_id: ems-emsr861-storm-kristin-portugal
+        title: >-
+          EMSR861 — Storm Kristin and Flooding in Central Portugal, Galicia and
+          Andalusia, Spain
+        path: EMSR861
+        page: EMSR861/
+      - doc_id: ems-emsr864-coastal-flood-portugal
+        title: EMSR864 — Coastal Flood in Portugal and Spain
+        path: EMSR864
+        page: EMSR864/
+      - doc_id: ems-emsr842-wildfire-spain-portugal
+        title: EMSR842 — Wildfire in Spain and Portugal
+        path: EMSR842
+        page: EMSR842/
+      - doc_id: ems-emsr908-wildfires-norte-portugal
+        title: >-
+          EMSR908 — Wildfires in Castilla y Leon, Spain and Norte, Portugal
+        path: EMSR908
+        page: EMSR908/

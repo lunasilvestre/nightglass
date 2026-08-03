@@ -10,6 +10,12 @@ SHELL := /bin/bash
 COMPOSE := docker compose
 PROVISION := $(COMPOSE) --profile provision
 
+# The corpus fetcher writes onto a host bind mount, so it runs as the invoking
+# user rather than as the image's uid. Without this the corpus lands root-owned
+# and `make ingest` fails with a permission error two steps downstream.
+export HOST_UID := $(shell id -u)
+export HOST_GID := $(shell id -g)
+
 .PHONY: help
 help:  ## show this help
 	@awk 'BEGIN {FS = ":.*##"; print "NIGHTGLASS\n"} \
@@ -28,7 +34,9 @@ up: preflight  ## build and start the enclave, wait for healthy
 	@echo
 	@$(COMPOSE) ps
 	@echo
-	@echo "Enclave up. Models: make pull-models (once). Proof: make air-gap-proof"
+	@echo "Enclave up."
+	@echo "  once:   make pull-models      (~10 GB)   make fetch-corpus (~35 MB)  make ingest"
+	@echo "  proof:  make air-gap-proof    (M1)       make rag-proof              (M2)"
 
 .PHONY: down
 down:  ## stop the enclave, keep volumes
@@ -58,6 +66,14 @@ seed-models:  ## LOCAL SHORTCUT: copy models from the host ollama instead of dow
 	@echo ">> Not the documented path — 'make pull-models' is. This exists because"
 	@echo ">> this machine already has the blobs and re-downloading 10 GB is waste."
 	@scripts/seed-models-from-host.sh
+
+.PHONY: fetch-corpus
+fetch-corpus:  ## fetch the public half of the document corpus (M2). ~35 MB.
+	@echo ">> Runs on the provision network, not the enclave. Re-runs are cached;"
+	@echo ">> add FORCE=1 to re-download."
+	@mkdir -p data/corpus
+	$(PROVISION) run --rm corpus-fetcher fetch \
+	  --sources /app/corpus/sources.yaml --out /app/data/corpus $(if $(FORCE),--force,)
 
 ##@ Verification
 
@@ -90,11 +106,33 @@ ready:  ## dependency readiness from inside the enclave
 	$(COMPOSE) exec api curl -fsS localhost:8000/ready
 	@echo
 
+##@ Documents  (M2)
+
+.PHONY: ingest
+ingest:  ## chunk + embed the corpus into Qdrant (idempotent; add RECREATE=1 to rebuild)
+	$(COMPOSE) exec api nightglass-corpus ingest $(if $(RECREATE),--recreate,) -v
+
+.PHONY: docs-stats
+docs-stats:  ## what is actually in the document index
+	$(COMPOSE) exec api nightglass-corpus stats
+
+.PHONY: docs-search
+docs-search:  ## doc_search from the CLI. make docs-search Q="embarcação escura"
+	$(COMPOSE) exec api nightglass-corpus search "$(Q)" -k $(or $(K),8)
+
+.PHONY: ask-docs
+ask-docs:  ## grounded, cited answer. make ask-docs Q="o que é uma embarcação escura?"
+	$(COMPOSE) exec api nightglass-corpus ask "$(Q)" --sources
+
+.PHONY: rag-proof
+rag-proof:  ## §M2: same question ungrounded vs grounded, plus the refusal path
+	@scripts/rag-proof.sh
+
 ##@ Using it
 
 .PHONY: ask
 ask:  ## ask the agent a question (M5). make ask Q="Houve alguma embarcação...?"
-	$(COMPOSE) --profile cli run --rm agent $(Q)
+	$(COMPOSE) --profile cli run --rm agent "$(Q)"
 
 .PHONY: shell
 shell:  ## shell inside the api container
