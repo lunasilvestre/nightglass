@@ -84,6 +84,22 @@ fetch-coastline:  ## fetch GSHHG and clip it to the configured AOIs (M3). 149 MB
 	$(PROVISION) run --rm coastline-fetcher fetch-coastline \
 	  --out /app/data/coastline $(if $(FORCE),--force,)
 
+.PHONY: fetch-gfw
+fetch-gfw:  ## fetch GFW's published detections as a cross-check layer (M6). Needs GFW_TOKEN.
+	@echo ">> Runs on the provision network, not the enclave."
+	@echo ">> A REFERENCE layer, never an input to ais_match — see spatial/gfw.py."
+	@mkdir -p data/gfw
+	@# The token is a provider identity and lives in ~/.config/eo-credentials.env,
+	@# not in this repo. load-env.sh knows the precedence (a blank in .env means
+	@# 'defer to central', not 'override with empty'); compose forwards it.
+	@# GFW_AOI, not AOI: the spatial targets above default AOI to kattegat, and
+	@# GFW is a Portuguese cross-check. Sharing the variable silently fetched the
+	@# wrong AOI on the first run.
+	@source scripts/load-env.sh >/dev/null && \
+	  $(PROVISION) run --rm gfw-fetcher gfw-reference --out /app/data/gfw \
+	    --aoi $(or $(GFW_AOI),lisbon) \
+	    --start $(or $(START),2026-06-13) --end $(or $(END),2026-06-14)
+
 ##@ Verification
 
 .PHONY: air-gap-proof
@@ -178,6 +194,13 @@ render:  ## chips, scene overview and map view into data/out/
 .PHONY: dark-proof
 dark-proof:  ## §M3 end to end: schema, scene, detections, AIS, the query, the evidence
 	@scripts/dark-proof.sh
+
+.PHONY: gfw-compare
+gfw-compare:  ## our detector vs GFW's published layer, over the identical granule
+	@# GFW_AOI, not AOI — see fetch-gfw. AOI defaults to kattegat for the M3
+	@# targets, and GFW is the Portuguese cross-check.
+	$(COMPOSE) exec -T -e NIGHTGLASS_AOI=$(or $(GFW_AOI),lisbon) api nightglass-spatial \
+	  gfw-compare $(if $(SCENE_ID),--scene-id $(SCENE_ID),)
 
 ##@ Using it
 

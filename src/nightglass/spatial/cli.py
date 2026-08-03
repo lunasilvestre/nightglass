@@ -7,6 +7,8 @@ network, and it runs in a different image on a different network from every othe
 one. Running it inside the enclave fails at DNS resolution, which is correct.
 
     nightglass-spatial fetch-coastline      ONLINE, provisioning only
+    nightglass-spatial gfw-reference        ONLINE, provisioning only
+    nightglass-spatial gfw-compare          our detector vs the published layer
     nightglass-spatial migrate              create/refresh the PostGIS schema
     nightglass-spatial scenes               catalogue granules as STAC items
     nightglass-spatial detect               run the detector, load detections
@@ -102,6 +104,90 @@ def _configured_aoi_names() -> list[str]:
         for k, v in os.environ.items()
         if k.startswith("AOI_") and k.endswith("_BBOX") and v.strip()
     )
+
+
+def cmd_gfw_reference(args: argparse.Namespace) -> int:
+    """ONLINE. Provisioning only — the fifth thing this system fetches."""
+    import os
+
+    from nightglass.spatial.gfw import fetch_reference, reference_path, write_reference
+
+    aoi_name, bbox = _aoi_bbox(args)
+    start, end = _parse_day(args.start), _parse_day(args.end)
+    _rule(f"GFW published detections -> {aoi_name}  [{bbox}]")
+    print(f"  window     {start:%Y-%m-%d} .. {end:%Y-%m-%d}")
+    detections = fetch_reference(
+        bbox,
+        start,
+        end,
+        token=os.environ.get("GFW_TOKEN", ""),
+        zoom=args.zoom,
+        progress=True,
+    )
+    path = write_reference(
+        detections,
+        reference_path(args.out, aoi_name),
+        aoi=aoi_name,
+        bbox=bbox,
+        start=start,
+        end=end,
+        zoom=args.zoom,
+    )
+    matched = sum(1 for d in detections if d.matched)
+    print(f"\n  {len(detections)} detections  ({matched} matched, {len(detections) - matched} not)")
+    for granule in sorted({d.granule_id for d in detections}):
+        n = sum(1 for d in detections if d.granule_id == granule)
+        print(f"    {granule}  {n}")
+    print(f"\n  {path}")
+    return 0
+
+
+def cmd_gfw_compare(args: argparse.Namespace) -> int:
+    """OFFLINE. Our detections against the published layer, over one granule."""
+    from nightglass.spatial.gfw import compare, load_reference, reference_path
+    from nightglass.tools import detect_vessels
+
+    aoi_name, _ = _aoi_bbox(args)
+    theirs, doc = load_reference(args.reference or reference_path(args.gfw_dir, aoi_name))
+
+    granule = args.scene_id or _pick_granule(doc, theirs)
+    ours = detect_vessels(granule, args.min_length_m)
+    report = compare(ours, theirs, granule_id=granule, radius_m=args.radius_m)
+
+    _rule("two independent detectors, one granule")
+    print(report.render())
+    print(f"\n  reference retrieved {doc['retrieved_at']}\n  {doc['licence']}")
+    return 0
+
+
+def _pick_granule(doc: dict, theirs: list) -> str:
+    """The granule the reference has most to say about, named out loud.
+
+    An AOI usually clips several granules from one pass, so a reference over a
+    bbox covers more than one — over Lisbon, 66 detections on the granule that
+    crosses the AOI and 3 on the neighbour that clips its corner. Comparing
+    against the corner would report a detector that misses almost everything.
+    Choosing silently would hide that; the alternatives are printed.
+    """
+    counts: dict[str, int] = {}
+    for d in theirs:
+        counts[d.granule_id] = counts.get(d.granule_id, 0) + 1
+    if not counts:
+        raise SystemExit("the reference is empty — re-run `make fetch-gfw`")
+    ranked = sorted(counts.items(), key=lambda kv: -kv[1])
+    if len(ranked) > 1:
+        others = ", ".join(f"{g} ({n})" for g, n in ranked[1:])
+        print(f"  comparing over {ranked[0][0]} ({ranked[0][1]} GFW detections)")
+        print(f"  also in this reference, not compared: {others}")
+        print("  select another with --scene-id\n")
+    return ranked[0][0]
+
+
+def _parse_day(raw: str):
+    from datetime import UTC, datetime
+
+    stamp = datetime.fromisoformat(raw)
+    return stamp if stamp.tzinfo else stamp.replace(tzinfo=UTC)
 
 
 def cmd_migrate(args: argparse.Namespace) -> int:
@@ -313,6 +399,29 @@ def main(argv: list[str] | None = None) -> int:
                    help="keep the 149 MB download for a re-clip; off by default so the "
                         "enclave mount holds only the clipped AOIs")
     f.set_defaults(func=cmd_fetch_coastline)
+
+    g = sub.add_parser(
+        "gfw-reference",
+        help="ONLINE. Fetch GFW's published detections for an AOI as a reference layer.",
+    )
+    _add_aoi_args(g)
+    g.add_argument("--start", required=True, help="YYYY-MM-DD")
+    g.add_argument("--end", required=True, help="YYYY-MM-DD (exclusive upper bound)")
+    g.add_argument("--out", default="/app/data/gfw")
+    g.add_argument("--zoom", type=int, default=9)
+    g.set_defaults(func=cmd_gfw_reference)
+
+    gc = sub.add_parser(
+        "gfw-compare",
+        help="Our detections vs GFW's over the identical granule. Offline.",
+    )
+    _add_aoi_args(gc)
+    gc.add_argument("--scene-id", help="default: the reference's only granule")
+    gc.add_argument("--reference", help="path to the fetched reference JSON")
+    gc.add_argument("--gfw-dir", default="/app/data/gfw")
+    gc.add_argument("--radius-m", type=float, default=500.0)
+    gc.add_argument("--min-length-m", type=float, default=15.0)
+    gc.set_defaults(func=cmd_gfw_compare)
 
     m = sub.add_parser("migrate", help="Create or refresh the PostGIS schema.")
     m.add_argument("--drop", action="store_true", help="DROP the M3 schemas first")

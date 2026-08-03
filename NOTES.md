@@ -280,12 +280,10 @@ Two gotchas: `curl` glob-expands the `[0]` in `datasets[0]=` and silently sends 
 1. **The 25% unmatched rate.** Not a blocker, but it is the number a technical interviewer will
    push on. The shoreline-buffer sweep in the README shows near-shore detections are unmatched
    at 6:1; separating harbour structures and fixed installations from vessels is the real fix.
-2. **The GFW comparison** — verified and unwritten, but scheduled for M6. See above.
-   **Re-probed 2026-08-04: the July outage has cleared.** `4wings/tile/position/9/242/196`
-   returns HTTP 200, 1590 bytes of MVT, 13 detection features whose ids carry
-   `S1A_…_20260613T064316_…_F72E` — the granule on disk and the one `correlate` runs over.
-   Credentials come from `~/.config/eo-credentials.env` via `scripts/load-env.sh`; there is
-   nothing to obtain. `curl -g` is still required or the `[0]` glob-expands to nothing.
+2. **The GFW comparison — ✅ BUILT 2026-08-04.** `make fetch-gfw` (provision network) and
+   `make gfw-compare` (offline). It found more than it was built to check: see finding 38, the
+   detector counts one vessel several times over Portugal. What is left is putting the numbers
+   in the README's limitations section and in the M6 recording.
 3. **A genuinely cold `make pull-models`** — unchanged from M2, still only ever run against a
    volume that already held the blobs.
 4. **FastMCP 3.4.5 still accepts `transport="sse"`** — revisit at M4 when Claude Desktop attaches.
@@ -1776,14 +1774,67 @@ Denmark is unchanged and regression-checked: 60 detections, 45 matched, 15 dark,
 note now records *"matched against dma — 38,178 AIS positions within ±11 min"*, so a future
 `133 dark` cannot be mistaken for a correlation that ran.
 
-### 38. `make_interval(mins => …)` will not take a fractional argument
+### 38. ⭐⭐ The Portuguese excess is not clutter — the detector counts one vessel several times
+
+The GFW cross-check was built expecting to confirm the detector generalises. It did, and it also
+answered a question nobody had asked properly. Over the identical granule
+(`S1A_…20260613T064316…F72E`, on disk, 66 GFW detections inside the Lisbon AOI):
+
+```
+ours          133 detections   (nightglass-cfar)
+GFW            66 detections   (published layer, same granule)
+both saw       49   74% of GFW's, median separation 56 m
+GFW only       17
+ours only      84
+```
+
+**56 m median separation between two independent detectors** is the headline agreement number,
+and it is tighter than the 119 m median against DMA AIS — expected, since both are measuring
+pixels rather than pixels against a transponder.
+
+The 84 was the interesting one, and the flattering reading — "our detector is more sensitive" —
+is wrong. Measured how far each of those 84 sits from the nearest detection *both* detectors
+found:
+
+```
+within 200 m   51   (61%)      too close to be a second vessel
+median        152 m
+```
+
+Sixty-one per cent of the excess is sitting on top of something we already counted. This granule
+holds nearer **82 distinct targets than 133**. The detector has no merge step, and finding 31
+already saw the mechanism in the chips without drawing the conclusion: Portuguese scenes show
+heavy **azimuth smear**, and the region-growing sizer picks up the smear, so one hull becomes
+several blobs.
+
+**The coastal-clutter hypothesis was tested and only partly holds here.** Within 5 km of shore:
+24% of the ours-only detections against 6% of the agreed ones — a real 4× enrichment, but it
+accounts for about a quarter of the excess, not the bulk. Over Denmark clutter dominated; over
+Portugal fragmentation does. Two AOIs, two different failure modes, and neither would have been
+visible from the other.
+
+**What this changes.** "133 detections over Lisbon" was never a claim about 133 vessels and is
+now measurably not one. The rate guard is unaffected — it already refuses on precision grounds —
+but the README's limitation is sharper for being decomposed: the count is inflated by
+fragmentation *and* the residue is enriched near shore, and both are measured rather than
+asserted. A merge step, or a smear-aware sizer, moves the real number; it is on the three-weeks
+list where finding 31 put it, now with a number attached.
+
+**On what the comparison is worth.** Two detectors agreeing is weaker evidence than the AIS
+validation banked over Denmark — it says the detector generalises, not that either is right, and
+`Comparison.render()` prints that sentence every time so the number is never quoted without it.
+GFW's own `matched` flags on the 49 agreed detections (45 matched, 4 not) are reported as
+*their* computation under CC BY-NC 4.0, never merged into a `Match`, which is the line
+`GFWDetectionSource` has refused to cross since M3.
+
+### 39. `make_interval(mins => …)` will not take a fractional argument
 
 Every named argument of `make_interval` is an integer except `secs`, so a window of 11.0 minutes
 fails to resolve the function rather than rounding — `UndefinedFunction`, at runtime, from a
 query that reads fine. `dark_vessels.sql` already took its window in seconds for this reason; the
 new feed-lookup query did not, and found out.
 
-### 39. "Take the newest scene" is the wrong default when granules come in pairs
+### 40. "Take the newest scene" is the wrong default when granules come in pairs
 
 Consecutive granules from one Sentinel-1 pass both clip an AOI — the normal case, not an edge
 one. Over the Kattegat the newer of the two (`…34CE`, 05:24:01) covers **1.50 deg²** of the

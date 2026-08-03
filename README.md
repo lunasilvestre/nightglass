@@ -18,13 +18,15 @@ Deliberately shaped as the open-source shadow of ICEYE Ocean Vision Detect.
 > transponder failure, low-power class B sets, vessels never required to carry AIS at all. The
 > system surfaces candidates. The analyst adjudicates.
 
-**Status: M3 — the spatial layer.** The enclave stands up and is sealed (M0), runs inference
+**Status: M4 — the tool layer.** The enclave stands up and is sealed (M0), runs inference
 offline (M1), answers from a 60-document corpus with every claim traced to a retrievable chunk
-or refuses (M2), and now runs its own vessel detector over real Sentinel-1 pixels and correlates
-the detections against real AIS in space *and* time (M3). Over the Danish validation AOI, 45 of
-60 detections match a vessel that was actually there, with **88% recall on AIS vessels ≥ 30 m**.
-The remaining tools of `EXECUTION_SPEC.md` §5 are M4; their contracts are already typed in
-`src/nightglass/schemas.py`. `NOTES.md` is the running decision log.
+or refuses (M2), runs its own vessel detector over real Sentinel-1 pixels and correlates the
+detections against real AIS in space *and* time (M3), and serves all six `EXECUTION_SPEC.md` §5
+tools over both HTTP and MCP (M4). Over the Danish validation AOI, 45 of 60 detections match a
+vessel that was actually there, with **88% recall on AIS vessels ≥ 30 m**. The local 14B model
+chains three tools unaided from a Portuguese question; Claude Code drives the same tools over a
+pipe from outside the enclave. Next is the LangGraph agent and its human-in-the-loop gate (M5).
+`NOTES.md` is the running decision log.
 
 ---
 
@@ -58,8 +60,8 @@ The remaining tools of `EXECUTION_SPEC.md` §5 are M4; their contracts are alrea
 
         nightglass_provision ─┬─ model-puller      ──► internet  (profile-gated;
                               ├─ corpus-fetcher    ──► internet   the ONLY services
-                              └─ coastline-fetcher ──► internet   with egress, and
-                                                                  none of them runs
+                              ├─ coastline-fetcher ──► internet   with egress, and
+                              └─ gfw-fetcher       ──► internet   none of them runs
                                                                   during operation)
 ```
 
@@ -77,16 +79,24 @@ Two consequences follow, and both are deliberate:
   Claude Desktop over stdio through `docker exec` rather than over a socket.
 - **Nothing inside can fetch its own inputs at runtime.** Correct, and it applies to every
   input. Weights arrive via `model-puller` (`make pull-models`), documents via `corpus-fetcher`
-  (`make fetch-corpus`), the shoreline via `coastline-fetcher` (`make fetch-coastline`), and
-  granules are staged onto a read-only mount before the enclave is sealed. All three fetchers
-  are profile-gated services on the `provision` network, invoked explicitly, and none is running
-  during operation. Provisioning and operation are different security postures and the compose
-  file says so out loud rather than blurring them.
+  (`make fetch-corpus`), the shoreline via `coastline-fetcher` (`make fetch-coastline`), the GFW
+  cross-check layer via `gfw-fetcher` (`make fetch-gfw`), and granules are staged onto a
+  read-only mount before the enclave is sealed. Every fetcher is a profile-gated service on the
+  `provision` network, invoked explicitly, and none is running during operation. Provisioning and
+  operation are different security postures and the compose file says so out loud rather than
+  blurring them.
 
-  That the list is four items long and not three is itself a finding: the detector's own land
+  That the list is five items long and not three is itself a finding. The detector's own land
   mask structurally cannot separate a 100 m skerry from a 100 m hull, so a real air-gapped
-  deployment has to ship a coastline with it. The clip happens online, so the enclave carries
-  713 KB rather than the 149 MB archive.
+  deployment has to ship a coastline with it; and validating a detector needs someone else's
+  detections, so it has to ship those too. Both are clipped or filtered online — the enclave
+  carries 713 KB of shoreline rather than a 149 MB archive, and 69 detections rather than a
+  global layer.
+
+  Credentials follow the same split. `GFW_TOKEN` is a provider identity, so it lives in
+  `~/.config/eo-credentials.env` (chmod 600, never committed) and is forwarded to the provision
+  service by the invoking shell — never written into `.env`, and never reachable from the
+  enclave, where it would be useless anyway.
 
 ---
 
@@ -99,6 +109,7 @@ make up                   # build + start, waits for every container healthy
 make pull-models          # once, ~10 GB   ┐
 make fetch-corpus         # once, ~35 MB   ├ the only steps that touch the network
 make fetch-coastline      # once, 149 MB   ┘ (149 MB in, 713 KB kept)
+make fetch-gfw            # once, ~70 detections — the cross-check layer (needs GFW_TOKEN)
 make ingest               # chunk + embed the corpus into Qdrant (~1 min, offline)
 make air-gap-proof        # §M1: no egress, inference works anyway
 make rag-proof            # §M2: ungrounded vs grounded, and the refusal path
@@ -428,11 +439,62 @@ of them showing the vertical azimuth smear of a moving target. That smear is als
 run large on this scene, and it is the same mechanism behind the weak length correlation
 measured over Denmark.
 
+### A second detector, over the identical granule
+
+Denmark validates the matcher against AIS. Nothing there validates the *detector*, so the
+Portuguese scene is cross-checked against Global Fishing Watch's published SAR detections — and
+because each GFW feature id carries its source granule, that granule is one of the six on disk.
+This is detection-for-detection over the same pixels, not "they saw N in this box and we saw M".
+`make fetch-gfw` (provision network, `GFW_TOKEN` from `~/.config/eo-credentials.env`), then
+`make gfw-compare`:
+
+```
+ours          133 detections   (nightglass-cfar)
+GFW            66 detections   (published layer, same granule)
+
+both saw       49   (74% of GFW's, median separation 56 m)
+GFW only       17   they found, we did not
+ours only      84   we found, they did not
+```
+
+**56 m median separation between two independent detectors** — tighter than the 119 m against
+DMA AIS, as it should be, since both are measuring pixels rather than pixels against a
+transponder.
+
+The 84 is the number worth interrogating, and the flattering reading — "ours is more sensitive"
+— is wrong. Measuring how far each of those 84 sits from the nearest detection *both* found:
+
+```
+within 200 m   51   (61%)   — too close to be a second vessel
+median        152 m
+```
+
+So this granule holds nearer **82 distinct targets than 133**. The detector has no merge step,
+and Portuguese scenes show heavy azimuth smear that splits one hull into several blobs. That was
+visible in the chips before it was measured; the cross-check is what turned it into a number.
+
+Two detectors agreeing is weaker evidence than the AIS validation banked over Denmark — it says
+the detector generalises, not that either is right, and the tool prints that sentence every time
+so the number is never quoted without it. GFW's own `matched` flags on the 49 agreed detections
+(45 matched, 4 not) are reported as *their* computation under CC BY-NC 4.0, never merged into a
+`Match`: they matched against their AIS upstream, and claiming that as our correlation would be
+claiming their work.
+
 ### What the numbers do *not* say
 
 - **25% unmatched is not a 25% dark-vessel rate.** Published work on Danish waters finds ~5%
   unmatched and ~0.4% genuinely dark after review. The residual here concentrates near shore and
   is dominated by coastal clutter this pipeline has not fully separated from vessels.
+- **A detection count is not a vessel count.** Measured against GFW over Portugal, 61% of the
+  detections they did not share sit within 200 m of one we both found — fragments of the same
+  hull, not extra vessels. The two AOIs fail differently: over Denmark the excess is coastal
+  clutter, over Portugal it is fragmentation, and testing the clutter hypothesis over Portugal
+  put only ~24% of the excess within 5 km of shore against 6% of the agreed detections. Neither
+  failure mode would have been visible from the other AOI alone.
+- **No AIS is loaded for Portugal, and the tools refuse rather than guess.** `ais_match` raises
+  instead of returning 133 unmatched detections, and `correlate` returns the detections with the
+  verdict withheld. "We searched a feed and found nothing" and "there was no feed to search" are
+  different statements, and only the first one is a dark detection.
 - **Detected length is not a reliable size estimate.** Detecting at 8σ and measuring at the same
   threshold gave lengths with **r = 0.015** against AIS — no relationship at all, because at
   that threshold the blob tracks peak brightness rather than hull. Re-growing each detection at
@@ -600,6 +662,7 @@ carrying a note saying so and how to select them, so the bound is visible in the
 |---|---|---|
 | **Sentinel-1 GRD** (ESA, via ASF) | SAR imagery, both AOIs | Free and open. Requires a NASA Earthdata account and one-time ASF EULA acceptance. |
 | **Danish Maritime Authority AIS** | Point-level ground truth, validation AOI | See attribution below. |
+| **eo-credentials** | `GFW_TOKEN` and friends live in `~/.config/eo-credentials.env`, never in this repo — `scripts/load-env.sh` loads it before `.env`, and a blank value in `.env` means *defer to central* rather than *override with empty*. | — |
 | **Global Fishing Watch** SAR detections | Independent reference layer, demo AOI | **CC BY-NC 4.0** — non-commercial, attribution required. |
 | **aisstream.io** | Live demonstration feed, demo AOI | Free tier. **Not ground truth** — see Limitations. |
 | **ICEYE product documentation** | Document corpus — SAR technical reference | © ICEYE Ltd. Public documentation, **no open licence stated**. Fetched locally, `redistributable: false`, never committed here. |
@@ -734,6 +797,7 @@ src/nightglass/
     db.py                 PostGIS access; the SQL lives in files, not f-strings
     sql/001_schema.sql    stac.scenes · detect.runs+detections · ais.positions
     sql/dark_vessels.sql  §M3's join — interpolate, correct, match. Readable on its own.
+    gfw.py                ONLINE fetch of GFW's published detections; the cross-check
     render.py             chips, scene overview, map view — the evidence
     plots.py              validation charts
     validate.py           measure the detector against DMA ground truth

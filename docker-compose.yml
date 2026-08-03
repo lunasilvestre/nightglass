@@ -54,6 +54,10 @@ x-data: &data
   # (a few hundred KB) because the clipping happened online -- the enclave gets
   # its AOIs, not the 149 MB planet.
   - ./data/coastline:/app/data/coastline:ro
+  # GFW's published detections, fetched at provisioning time. A *reference*
+  # layer, never an input to ais_match -- see spatial/gfw.py. Read-only for the
+  # same reason the granules are: it is someone else's evidence.
+  - ./data/gfw:/app/data/gfw:ro
   - ./data/out:/app/data/out
 
 services:
@@ -336,6 +340,45 @@ services:
     volumes:
       - ./data/coastline:/app/data/coastline
     command: ["fetch-coastline", "--out", "/app/data/coastline"]
+
+  # ---------------------------------------------------------------------------
+  # gfw-fetcher -- provisioning only. NOT part of the enclave.
+  # ---------------------------------------------------------------------------
+  # The fifth and last outside input: Global Fishing Watch's published SAR
+  # detections, as a layer to cross-check our own detector against. Never an
+  # input to `ais_match` -- see src/nightglass/spatial/gfw.py for why that line
+  # matters and where it is enforced.
+  #
+  # GFW_TOKEN is passed THROUGH from the invoking shell rather than written into
+  # this file or into .env. It is a provider identity, and it lives in
+  # ~/.config/eo-credentials.env -- one identity, many projects, chmod 600,
+  # never committed. `make fetch-gfw` sources scripts/load-env.sh, which knows
+  # the precedence rules; compose just forwards the variable.
+  #
+  # This is a `provision`-network service, so it HAS egress by design. That is
+  # not a hole in the enclave: the enclave is the other network, it is declared
+  # `internal: true`, and nothing on it can see this container or its token.
+  gfw-fetcher:
+    profiles: ["provision"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: fetcher
+    image: nightglass/fetcher:dev
+    container_name: nightglass-gfw-fetcher
+    networks: [provision]
+    restart: "no"
+    env_file: [.env]
+    environment:
+      # No value: forward whatever the invoking shell has. A value here would
+      # mean a credential in a committed file.
+      - GFW_TOKEN
+      - NIGHTGLASS_AOI
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    entrypoint: ["nightglass-spatial"]
+    volumes:
+      - ./data/gfw:/app/data/gfw
+    command: ["gfw-reference", "--out", "/app/data/gfw"]
 
 networks:
   # The enclave. `internal: true` is the entire air-gap mechanism -- default
