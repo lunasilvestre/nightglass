@@ -554,11 +554,126 @@ beneath it returns false whether or not the path exists, and the script would ha
 `sudo test -d`. Generalises: a permission-denied traversal and a genuine absence are
 indistinguishable to `test`, and only one of them is worth an error message.
 
+---
+
+## M1 — done 2026-08-03. Both halves captured.
+
+Models seeded from the host (9.5 GB, 8 blobs, both manifests), host ollama stopped, and
+`make air-gap-proof` passes end to end. The capture is in the README.
+
+```
+$ docker compose exec api curl -m 5 https://example.com
+curl: (6) Could not resolve host: example.com          ← not a timeout. no route at all.
+$ chat completion against qwen2.5:14b, inside the enclave
+Radar de Abertura Sintética (SAR) é uma tecnologia que permite capturar imagens
+detalhadas da superfície da Terra usando ondas de rádio, funcionando bem de noite
+porque não depende da luz solar para operar.                              ← correct
+```
+
+### 11. ⭐ The model has NO prior for "embarcação escura" — this is the case FOR M2
+
+The first proof run asked, in Portuguese, *"o que é uma embarcação escura?"*. Ungrounded, with
+no retrieved context, qwen2.5:14b answered:
+
+> *"pode ser qualquer tipo de barco ou navio que seja **pintado em cores escuras** ou esteja
+> situada em um fundo que a faz parecer escura visualmente."*
+
+It read the intelligence term as a description of **paint colour**. Fluent, confident, entirely
+domain-wrong — and it would have read as authoritative to anyone who did not already know better.
+
+This is the single most useful thing to come out of M1, for three reasons:
+
+1. **It is the concrete argument for M2.** The operational meaning of "dark vessel" has to come
+   from the retrieved corpus, never from model priors. That is no longer an assertion in a spec;
+   there is a transcript.
+2. **It is the README's RAG before/after.** Same question, ungrounded vs grounded-with-citations,
+   is a far stronger demonstration than any retrieval-hit-rate number. Save it for §M2.
+3. **It was the wrong prompt for the M1 capture** — a reader sees a wrong answer directly beneath
+   the words "inference works". The air-gap script now asks about SAR instead, which the base
+   model answers correctly. The question is kept here deliberately, not discarded.
+
+Generalises to §7: a fluent, confident, wrong answer from an ungrounded local model is *exactly*
+the failure the provenance requirement exists to catch. Worth saying out loud in the hiring
+manager round — the honest version is "I found my own model doing this and built around it."
+
+### 13. ⭐ `OLLAMA_HOST` means two different things — and it broke `make pull-models`
+
+Running the documented provisioning path for the first time failed immediately:
+
+```
+$ make pull-models
+Error: listen tcp: lookup ollama on 127.0.0.11:53: no such host
+ollama did not come up
+```
+
+**`OLLAMA_HOST` is read by `ollama serve` as the address to BIND to, and by every ollama client
+as the URL to CONNECT to.** `.env` sets it to `http://ollama:11434`, which is correct for the
+enclave's clients (`api`, `agent`, `mcp`). The `model-puller` inherited that same value via
+`env_file`, so its `ollama serve` tried to bind to a hostname that does not exist on the
+provision network, and died.
+
+Worse, the *enclave's* ollama had the identical misconfiguration and **worked by accident** —
+the hostname `ollama` resolves to that container itself on the enclave network, so binding to it
+succeeded. A latent fragility that looked like a working system.
+
+Both now set the bind address explicitly: `0.0.0.0:11434` for the enclave server,
+`127.0.0.1:11434` for the puller, which serves nobody and only needs a local endpoint to pull
+through. Re-verified afterwards: five containers healthy, air-gap proof still passes both halves.
+
+**This is the argument for exercising the documented path rather than the convenient one.**
+`make seed-models` worked fine and hid this completely; a cloner following the README would have
+hit it on their first command. Found because the path a stranger takes was actually run.
+
+### 14. Ollama has its own outbound paths — the network was the only thing stopping them
+
+Reading the `model-puller` startup log properly (rather than just noting it succeeded):
+
+```
+OLLAMA_NO_CLOUD:false   OLLAMA_REMOTES:[ollama.com]
+msg="Ollama cloud disabled: false"
+msg="model recommendations cache sleep scheduled" wait=3h20m42s
+```
+
+Ollama 0.32.5 ships **cloud-hosted model routing** via ollama.com and a periodic
+**model-recommendations refresh**. Inside the enclave both fail — there is no DNS to resolve
+ollama.com with — so nothing leaked. But *"it fails because the network stops it"* is a weaker
+claim than *"it was never enabled"*, and for a project whose entire thesis is the boundary,
+leaning on one layer is the wrong instinct.
+
+`OLLAMA_NO_CLOUD=true` now set on the enclave service; verified in its log as
+`Ollama cloud disabled: true`. Deliberately **not** set on `model-puller`, which legitimately
+reaches the registry. The boundary and the application now agree rather than one covering for
+the other.
+
+Also from that log, and correct rather than a bug: the puller reports `library=cpu`,
+`total_vram="0 B"`. It has no GPU because only the enclave `ollama` service carries the device
+reservation. Pulling is a download, not inference. Nobody should "fix" this by adding a GPU.
+
+Generalises, and it is the honest answer to §9's *"what breaks first in a real air-gapped
+deployment"*: not the model, not the database — **some dependency's built-in telemetry, update
+check or cloud fallback**, which nobody declared and which works fine in every environment where
+it was tested.
+
+### 12. Free-VRAM preflight blocked the thing it existed to enable
+
+`make air-gap-proof` refused to run with *"only 7412 MiB free — inference needs ~16000 MiB"* —
+because the enclave's ollama had **already loaded the model**. The VRAM was consumed by precisely
+the process that needed it, and free-VRAM arithmetic had become the wrong question.
+
+Passed the first time only because nothing was loaded yet. Now the check asks *is the model
+resident?* before *is there room to load it?*, and short-circuits when `ollama ps` inside the
+enclave lists anything. A resource precondition has to be written against the goal state, not
+the free-resource count, or it starts failing the moment it succeeds.
+
 ### Still open after M0
 
-- `make pull-models` has not been run — needs the host ollama stopped (sudo) to leave the card
-  free, or `make seed-models` to copy the ~10 GB already on this machine.
-- Therefore `make air-gap-proof`'s **chat half is unrun**. The no-egress half is verified above.
+- ~~`make pull-models` is still unproven~~ → **run and passing** (see finding 13 — it was broken,
+  and running it is what found the bug). Residual gap: it was exercised against a volume that
+  already held the blobs, so it verified manifests and digests rather than downloading 9.5 GB
+  cold. Everything of *ours* is now proven — network, volume, serve-and-wait, env, the loop —
+  and what remains untested is ollama's own downloader. Worth one genuinely cold run before M6,
+  but it is no longer a guess.
+- ~~`make air-gap-proof`'s chat half is unrun~~ → **both halves pass**, capture in the README.
 - FastMCP 3.4.5 still accepts `transport="sse"`, but `http`/`streamable-http` is the modern
   path. Worth revisiting at M4 when Claude Desktop attaches for real.
 

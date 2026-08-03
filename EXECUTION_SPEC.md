@@ -425,7 +425,7 @@ At some point he should make a non-trivial change himself. Hands in it beats rea
     [ ] GFW token
     [ ] aisstream recorder running ← hard deadline, stable before Fri 7 Aug 07:00 UTC
 [x] M0  scaffold, compose up, healthchecks, NOTES.md   ← 5/5 containers healthy 2026-08-03
-[ ] M1  offline inference + failed-egress proof captured
+[x] M1  offline inference + failed-egress proof captured   ← 2026-08-03, in README
 [ ] M2  RAG with citations + refusal path
 [ ] M3  PostGIS, dark-vessel SQL hand-checked against the ~5% base rate
 [ ] M4  six tools, MCP server, Claude Desktop + local model both driving it
