@@ -145,6 +145,34 @@ not change, but what the demo *shows* does.
    produces, including two it did not catch in a first draft, and it is not a proof. The real
    guarantee is that the templated findings never compute a proportion at all.
 
+### Credentials are already solved — do not re-solve them
+
+`GFW_TOKEN` is **blank in `.env` on purpose** and that is not a missing credential. It comes from
+`~/.config/eo-credentials.env` (one identity, many projects, chmod 600, never committed), and
+`scripts/load-env.sh` loads central first, project second, with one subtlety worth knowing before
+"fixing" it: a blank value in `.env` means *defer to central* rather than *override with empty*,
+because the project file loads last and would otherwise clobber a perfectly good token — and the
+failure would read as "token not set" rather than "token was overwritten".
+
+    source scripts/load-env.sh && nightglass_env_status
+
+prints what is set without ever printing a value. Verified 2026-08-04: GFW_TOKEN 798 chars,
+Earthdata in `~/.netrc`.
+
+**One rule in that loader's header is right in spirit and too broad as written.** It says
+credentials are never passed into docker compose, and that if you find yourself adding
+`GFW_TOKEN` to a compose service you should stop. True of the *enclave* services — a credential
+behind `internal: true` is useless, which is the whole M1 demonstration. But the `provision`
+profile is also compose, on its own network, with egress by design, and it is the established
+pattern for every other fetch (`corpus-fetcher`, `coastline-fetcher`, `model-puller`). The
+precise rule is **the enclave never gets it; the provision profile may**, and that is the
+decision to settle when `gfw-reference` is built — `GFWDetectionSource`'s docstring already names
+that command and it does not exist yet.
+
+If it goes the compose route: `env_file` handles the central file directly. Tested — Compose
+parses `export VAR=value` lines, which is not obvious and is the thing that would otherwise force
+a rewrite of a shared credentials file to suit one project.
+
 ### ⚠️ Host machine state that is NOT in the repo
 
 Unchanged: `ollama.service` is `inactive` but still `enabled` and will come back on the next
@@ -253,6 +281,11 @@ Two gotchas: `curl` glob-expands the `[0]` in `datasets[0]=` and silently sends 
    push on. The shoreline-buffer sweep in the README shows near-shore detections are unmatched
    at 6:1; separating harbour structures and fixed installations from vessels is the real fix.
 2. **The GFW comparison** — verified and unwritten, but scheduled for M6. See above.
+   **Re-probed 2026-08-04: the July outage has cleared.** `4wings/tile/position/9/242/196`
+   returns HTTP 200, 1590 bytes of MVT, 13 detection features whose ids carry
+   `S1A_…_20260613T064316_…_F72E` — the granule on disk and the one `correlate` runs over.
+   Credentials come from `~/.config/eo-credentials.env` via `scripts/load-env.sh`; there is
+   nothing to obtain. `curl -g` is still required or the `[0]` glob-expands to nothing.
 3. **A genuinely cold `make pull-models`** — unchanged from M2, still only ever run against a
    volume that already held the blobs.
 4. **FastMCP 3.4.5 still accepts `transport="sse"`** — revisit at M4 when Claude Desktop attaches.
