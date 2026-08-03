@@ -400,9 +400,10 @@ Pre-dev is complete. Everything below is state a new session cannot infer from t
 **Credentials live outside the repo**, in `~/.config/eo-credentials.env` (0600):
 `GFW_TOKEN`, `AISSTREAM_API_KEY`, `CDS_API_KEY`, `EUMETSAT_*`. Earthdata stays in `~/.netrc`.
 
-### ⚠️ OPEN DECISION — ollama in compose, or on the host?
+### ✅ RESOLVED AT M0 — ollama runs in compose. See "M0 — built" below.
 
-**This is a real conflict and M0 must resolve it deliberately.**
+**This was a real conflict and M0 resolved it deliberately.** The reasoning as it stood
+before the decision is kept intact below, because the argument is the answer.
 
 `EXECUTION_SPEC.md` §2 lists `ollama` as a **compose service**. But it is currently installed
 as a **host systemd service on port 11434**, with models pulled and keep-alive pinned.
@@ -419,6 +420,147 @@ as a **host systemd service on port 11434**, with models pulled and keep-alive p
 
 Whatever is chosen, **write it into `NOTES.md` and the README design table** — "why is the
 model server inside the enclave rather than beside it" is exactly a hiring-manager question.
+
+---
+
+## M0 — built 2026-08-03. `make up` → five containers healthy.
+
+```
+NAME                 IMAGE                    STATUS
+nightglass-api       nightglass/app:dev       Up (healthy)
+nightglass-mcp       nightglass/app:dev       Up (healthy)
+nightglass-ollama    ollama/ollama:0.32.5     Up (healthy)   11434/tcp
+nightglass-postgis   postgis/postgis:17-3.5   Up (healthy)   5432/tcp
+nightglass-qdrant    qdrant/qdrant:v1.18.3    Up (healthy)   6333-6334/tcp
+```
+
+Those `PORTS` values are container-exposed ports with **no host binding** — see finding 8.
+
+### Decision: ollama is a compose service
+
+Taken as the handoff recommended, for the handoff's reason: reaching the host service needs
+`host.docker.internal:host-gateway`, which is a deliberate hole in the exact boundary M1
+exists to prove, and it breaks M6's "clone and `make up`". `.env.example` had already
+committed to it with `OLLAMA_HOST=http://ollama:11434`.
+
+The two real costs, and what was done about each:
+
+| cost | mitigation |
+|---|---|
+| ~10 GB of model blobs re-downloaded | `make pull-models` — a **profile-gated** service on a **separate network**, so the enclave itself never has egress. Plus `make seed-models`, which copies the blobs already on this host into the volume. That one needs sudo and is explicitly *not* the documented path. |
+| VRAM contention | The host service pins ~15 GB with `OLLAMA_KEEP_ALIVE=-1`, leaving 6.5 GB of 24 GB. `scripts/preflight.sh` detects it and names the fix (`sudo systemctl stop ollama`). |
+
+### 8. `internal: true` silently drops published ports — NEW, and it shaped the topology
+
+Verified directly on Docker 29.7.1 before writing the compose file:
+
+```
+$ docker run -d --network <internal-net> -p 18099:80 nginx:alpine   # starts fine
+$ docker ps        →  80/tcp          ← no host mapping. None.
+$ curl 127.0.0.1:18099  →  HTTP 000
+$ # identical container on a normal bridge  →  HTTP 200
+```
+
+**No warning is emitted anywhere.** The mapping is simply never created.
+
+So no NIGHTGLASS service publishes a port — not as a style choice, but because it would not
+work and the compose file would be lying. Consequences: host access is `docker compose exec`
+(which is what §6's demo already uses), and MCP reaches Claude Desktop over **stdio through
+`docker exec`** rather than SSE over a socket. A pipe crosses the boundary without opening it.
+
+The tempting workaround is a second bridge network with
+`com.docker.network.bridge.enable_ip_masquerade=false` — published ports work, egress does
+not. **Rejected.** It weakens the proof from *"no route exists"* to *"packets leave and never
+come back"*, Docker's embedded DNS still resolves external names on such a network, and it is
+a tunable flag rather than a structural property. Default-deny by construction survives a
+future careless edit; a flag does not.
+
+### The air gap is real, and it fails in the strong way
+
+```
+$ docker compose exec api curl -m 5 https://example.com
+curl: (6) Could not resolve host: example.com
+$ docker compose exec api getent hosts ollama qdrant postgis
+172.21.0.4  ollama      172.21.0.3  qdrant      172.21.0.2  postgis
+```
+
+Not a timeout — **name resolution itself is refused**, because an internal network's embedded
+DNS does not forward externally. That is the difference between "firewalled" and "air-gapped",
+and it is the M1 capture worth recording. Internal service discovery still works.
+
+Corollary that bit immediately: **`make test` originally pip-installed pytest at run time and
+failed** with `Temporary failure in name resolution`. Correct behaviour, useless target. Test
+deps moved to a `dev` build stage; tests now run with `--network none`. Anything that assumes
+a package index at run time has to move to build time — worth remembering at M2 and M7.
+
+### 9. A transposed bbox is NOT generally detectable — validation cannot save us
+
+Assumed at first that a lat/lon swap could be caught by range-checking. It cannot. Lisbon's
+box swapped — `38.0,-10.5,39.5,-8.5` — is a **perfectly valid box off Somalia**; Kattegat's
+lands in the Arabian Sea. Both parse clean, pass every check, and return nothing.
+
+Only a swap that pushes a latitude past ±90 is catchable, and none of our AOIs do.
+
+So the defence is structural, not validational: axis order is converted in exactly one place,
+`BBox.as_aisstream()`, and `tests/test_config.py` asserts the undetectable case explicitly so
+nobody later assumes the validator covers it. This is the same failure the handoff flagged as
+"the most common way to get a silently empty stream".
+
+### What M0 built
+
+```
+docker-compose.yml          one internal network, no egress, pinned tags
+docker/Dockerfile           runtime + dev stages; curl is present because M1's proof needs it
+docker/postgis/initdb/      postgis, postgis_topology, btree_gist; schemas stac/detect/ais
+Makefile                    up, down, preflight, pull-models, seed-models, air-gap-proof, test, lint
+scripts/preflight.sh        docker, nvidia runtime, VRAM, AOI config
+scripts/air-gap-proof.sh    §M1's check, both halves, as a repeatable command
+scripts/seed-models-from-host.sh
+src/nightglass/config.py    AOI resolution — the only place a bbox is named
+src/nightglass/schemas.py   §5 contracts, provenance attached to every result
+src/nightglass/api/         FastAPI: /health /ready /config
+src/nightglass/mcp/         FastMCP, stdio + sse, one probe tool
+src/nightglass/agent/       placeholder; the graph is M5
+tests/test_config.py        10 tests, all passing
+README.md                   §8 skeleton — air-gap capture slot still empty, that is M1's
+```
+
+### Design calls made along the way (all reversible, per §"momentum rules")
+
+- **The agent is a one-shot `run --rm`, not a long-running service.** It runs to a human gate
+  and halts, so it has nothing to serve between invocations; a daemon wrapper would exist only
+  to satisfy a healthcheck. It sits behind `profiles: ["cli"]` so `make up` never starts it.
+- **`/health` is dependency-free; `/ready` does the dependency checks.** A healthcheck that
+  reaches sideways turns one slow service into a cascade of unhealthy containers.
+- **`pg_isready -h 127.0.0.1`, not the default socket.** Over the unix socket it answers
+  *during* initdb while the TCP listener is still closed, so the container reports healthy
+  before anything can connect to it.
+- **Qdrant's image has no curl and no wget.** Healthcheck uses bash's `/dev/tcp`.
+- **Ground truth is enforced in the type system, not in prose.** `Match.source_is_ground_truth`
+  travels with every match and `CorrelationResult.rate_is_quotable` is false unless all matches
+  came from a ground-truth feed. §7's "rates only over Denmark" should not depend on remembering.
+- **Overpass windows moved into `.env`** as `AOI_<NAME>_PASS_DESCENDING/ASCENDING`, since §3.1
+  lists "time window" among the things that must come from config. Kattegat's ascending bound is
+  the corrected **16:44**, not the guide's 16:52.
+- **`POSTGRES_PASSWORD` in `.env` was still the literal `change_me_locally`** — it is now a
+  generated value. `.env.example` keeps the placeholder. Key parity between the two is intact.
+
+### 10. `/usr/share/ollama` is mode 700 — existence checks must run under sudo
+
+`seed-models-from-host.sh` first guarded with a plain `[[ -d "$HOST_MODELS" ]]`. That guard is
+useless: the ollama home is **mode 700 owned by `ollama`**, so an unprivileged test on any path
+beneath it returns false whether or not the path exists, and the script would have reported
+"no host model store" on a store sitting right there. Every existence check in it now runs as
+`sudo test -d`. Generalises: a permission-denied traversal and a genuine absence are
+indistinguishable to `test`, and only one of them is worth an error message.
+
+### Still open after M0
+
+- `make pull-models` has not been run — needs the host ollama stopped (sudo) to leave the card
+  free, or `make seed-models` to copy the ~10 GB already on this machine.
+- Therefore `make air-gap-proof`'s **chat half is unrun**. The no-egress half is verified above.
+- FastMCP 3.4.5 still accepts `transport="sse"`, but `http`/`streamable-http` is the modern
+  path. Worth revisiting at M4 when Claude Desktop attaches for real.
 
 ### Two findings that save real time at M3
 

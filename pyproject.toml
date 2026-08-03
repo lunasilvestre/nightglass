@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nightglass"
+version = "0.1.0"
+description = "Air-gapped SAR intelligence assistant — dark-vessel detection and reporting"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+
+# Base install stays deliberately small: it is what the M1 air-gap proof runs
+# against, and every extra wheel is another thing to bundle offline at M7.
+dependencies = [
+  "pydantic>=2.9",
+  "pydantic-settings>=2.5",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+# What the containers install. Milestone-scoped extras below keep the image
+# from carrying rasterio and GDAL before M3 needs them.
+services = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "fastmcp>=2.0",
+  "qdrant-client>=1.12",
+  "psycopg[binary]>=3.2",
+  "ollama>=0.3",
+]
+spatial = [           # M3
+  "rasterio>=1.4",
+  "shapely>=2.0",
+  "pyproj>=3.6",
+  "geopandas>=1.0",
+  "pandas>=2.2",
+]
+agent = [             # M5
+  "langgraph>=0.2",
+  "langchain-core>=0.3",
+]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+nightglass-mcp = "nightglass.mcp.server:main"
+nightglass-agent = "nightglass.agent.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,268 @@
+# NIGHTGLASS — the enclave.
+#
+# One network, `enclave`, declared `internal: true`. Every application service
+# sits on it and nothing else. That single flag is the whole air-gap claim:
+# Docker attaches no default route and no NAT rule, so there is no path to the
+# internet to misconfigure. EXECUTION_SPEC §M1 proves it from inside.
+#
+# Two consequences that look like mistakes and are not:
+#
+#   1. NO PUBLISHED PORTS ANYWHERE.  Verified on Docker 29.7.1: a container on
+#      an internal network with `-p 18099:80` starts happily, `docker ps` shows
+#      `80/tcp` with no host mapping, and the port is dead. Docker emits no
+#      warning. So ports are not merely omitted here for tidiness -- they do not
+#      work, and writing them would be a lie in the file. Reach services with
+#      `docker compose exec`, which is what the §6 demo does anyway.
+#
+#   2. OLLAMA CANNOT PULL MODELS AT RUNTIME.  Correct and intentional. Model
+#      provisioning is a separate, explicitly-invoked step on a separate
+#      network -- see the `model-puller` service and `make pull-models`.
+#      Provisioning and operation are different security postures; the compose
+#      file says so out loud rather than blurring them.
+#
+# Images are pinned to exact tags. An air-gapped deployment that floats on
+# `:latest` cannot be reproduced, and reproducibility is the M6 deliverable.
+
+name: nightglass
+
+x-enclave: &enclave
+  networks: [enclave]
+  restart: unless-stopped
+  env_file: [.env]
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # ollama -- chat + embeddings, one service for both (see README design table)
+  # ---------------------------------------------------------------------------
+  # Runs INSIDE the enclave, not on the host. The host has ollama on :11434 as
+  # a dev convenience, and pointing at it would save re-downloading ~10 GB --
+  # but it needs `host.docker.internal:host-gateway`, i.e. a deliberate hole in
+  # the exact boundary M1 exists to prove, and it breaks "clone and make up".
+  # The models live in a named volume; `make pull-models` fills it.
+  #
+  # The host service and this container cannot both hold qwen2.5:14b resident
+  # on a 24 GB card -- the host one pins ~15 GB with OLLAMA_KEEP_ALIVE=-1.
+  # `make preflight` checks for that; `sudo systemctl stop ollama` fixes it.
+  ollama:
+    <<: *enclave
+    image: ollama/ollama:0.32.5
+    container_name: nightglass-ollama
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      # OLLAMA_HOST is read by `ollama serve` as the address to BIND to, and by
+      # every ollama client as the server URL to connect to. `.env` sets it to
+      # http://ollama:11434 for the enclave's clients (api, agent, mcp), so this
+      # container inherits a bind address of "ollama" -- which happens to resolve
+      # to itself on this network and therefore happens to work. Do not rely on
+      # an accident: bind explicitly.
+      OLLAMA_HOST: "0.0.0.0:11434"
+      # Ollama 0.32.5 has outbound paths of its own: cloud-hosted model routing
+      # via ollama.com (OLLAMA_REMOTES) and a periodic model-recommendations
+      # refresh. On the enclave network both fail, because there is no DNS to
+      # resolve ollama.com with -- but "it fails because the network stops it"
+      # is a weaker statement than "it was never enabled". Turn it off here too,
+      # so the boundary and the application agree instead of one covering for
+      # the other. NOT set on model-puller, which legitimately reaches the
+      # registry.
+      OLLAMA_NO_CLOUD: "true"
+      # Keep both models resident. The default 5m keep-alive would evict a
+      # 15 GB model between an embed call and a chat call, which surfaces as
+      # mysterious latency rather than an error.
+      OLLAMA_KEEP_ALIVE: "-1"
+      OLLAMA_MAX_LOADED_MODELS: "2"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      # `ollama list` exercises the HTTP API through the CLI already in the
+      # image -- no curl needed, and it fails if the server is not answering.
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # qdrant -- intel document chunks (M2)
+  # ---------------------------------------------------------------------------
+  qdrant:
+    <<: *enclave
+    image: qdrant/qdrant:v1.18.3
+    container_name: nightglass-qdrant
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    healthcheck:
+      # The qdrant image ships no curl and no wget. It does ship bash, so use
+      # bash's /dev/tcp to prove the port is accepting connections.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
+  # postgis -- STAC scene catalog, AIS tracks, vessel detections (M3)
+  # ---------------------------------------------------------------------------
+  postgis:
+    <<: *enclave
+    image: postgis/postgis:17-3.5
+    container_name: nightglass-postgis
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+      # Runs once, on an empty data directory only.
+      - ./docker/postgis/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # -h 127.0.0.1 matters: without it pg_isready probes the unix socket,
+      # which answers during initdb while the TCP listener is still closed,
+      # so the container reports healthy before it can actually be connected to.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # api -- FastAPI, the six tools of §5
+  # ---------------------------------------------------------------------------
+  api:
+    <<: *enclave
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runtime
+    image: nightglass/app:dev
+    container_name: nightglass-api
+    command: ["uvicorn", "nightglass.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      ollama:  {condition: service_healthy}
+      qdrant:  {condition: service_healthy}
+      postgis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "3", "http://127.0.0.1:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # mcp -- FastMCP over the same six functions (M4)
+  # ---------------------------------------------------------------------------
+  # Claude Desktop attaches over stdio:
+  #     docker compose exec -T mcp nightglass-mcp stdio
+  # which needs no published port and therefore no hole in the enclave. The SSE
+  # transport here is for in-enclave callers; exposing it to the host would need
+  # a proxy straddling both networks, deferred until something actually needs it.
+  mcp:
+    <<: *enclave
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runtime
+    image: nightglass/app:dev
+    container_name: nightglass-mcp
+    command: ["nightglass-mcp", "sse", "--host", "0.0.0.0", "--port", "8001"]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "3", "http://127.0.0.1:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # agent -- LangGraph (M5). One-shot, NOT a long-running service.
+  # ---------------------------------------------------------------------------
+  # Deliberately behind a profile so `make up` never starts it. The agent is a
+  # graph that runs to a human-in-the-loop interrupt and halts; a daemon wrapper
+  # around it would exist only to satisfy a healthcheck. Invoke it directly:
+  #     make ask Q="Houve alguma embarcação não declarada ...?"
+  agent:
+    <<: *enclave
+    profiles: ["cli"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: runtime
+    image: nightglass/app:dev
+    container_name: nightglass-agent
+    restart: "no"
+    entrypoint: ["nightglass-agent"]
+    depends_on:
+      api: {condition: service_healthy}
+
+  # ---------------------------------------------------------------------------
+  # model-puller -- provisioning only. NOT part of the enclave.
+  # ---------------------------------------------------------------------------
+  # The one service with egress, on its own network, behind a profile, so it
+  # can never be started by `make up`. It writes into the same named volume the
+  # enclave's ollama reads from. Provisioning happens once, with the network on;
+  # operation happens forever, with the network off.
+  model-puller:
+    profiles: ["provision"]
+    image: ollama/ollama:0.32.5
+    container_name: nightglass-model-puller
+    networks: [provision]
+    restart: "no"
+    env_file: [.env]
+    environment:
+      # Same double meaning as above, and here it is fatal rather than lucky:
+      # inheriting http://ollama:11434 makes `ollama serve` try to bind to a
+      # hostname that does not exist on the provision network, and it dies with
+      #     listen tcp: lookup ollama on 127.0.0.11:53: no such host
+      # This is loopback-only on purpose — the puller serves nobody, it just
+      # needs a local server to pull through.
+      OLLAMA_HOST: "127.0.0.1:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        ollama serve &
+        server=$$!
+        # Wait for the socket rather than sleeping a guessed interval.
+        for _ in $$(seq 1 60); do
+          ollama list >/dev/null 2>&1 && break
+          sleep 1
+        done
+        ollama list >/dev/null 2>&1 || { echo "ollama did not come up" >&2; exit 1; }
+        for m in "$${OLLAMA_CHAT_MODEL}" "$${OLLAMA_EMBED_MODEL}"; do
+          echo ">> pulling $$m"
+          ollama pull "$$m"
+        done
+        echo ">> models in volume:"
+        ollama list
+        kill $$server 2>/dev/null || true
+        wait $$server 2>/dev/null || true
+
+networks:
+  # The enclave. `internal: true` is the entire air-gap mechanism -- default
+  # deny by construction, not by a firewall rule someone has to maintain.
+  enclave:
+    name: nightglass_enclave
+    driver: bridge
+    internal: true
+
+  # Provisioning only. Reachable by `model-puller` and nothing else.
+  provision:
+    name: nightglass_provision
+    driver: bridge
+
+volumes:
+  ollama_models:
+    name: nightglass_ollama_models
+  qdrant_storage:
+    name: nightglass_qdrant_storage
+  postgis_data:
+    name: nightglass_postgis_data
