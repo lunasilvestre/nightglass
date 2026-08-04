@@ -1,0 +1,113 @@
+<svg viewBox="0 0 1600 1060" xmlns="http://www.w3.org/2000/svg" font-family="'DejaVu Sans', 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#7fa8d0"/>
+    </marker>
+    <marker id="arra" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#f5cd7e"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1060" fill="#0a0f18"/>
+
+  <!-- ═══════════ HOST ═══════════ -->
+  <rect x="40" y="30" width="1520" height="230" rx="14" fill="#0e1522" stroke="#3d5a7e" stroke-dasharray="8 7" stroke-opacity="0.8"/>
+  <text x="70" y="66" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="17" font-weight="bold" fill="#7fa8d0">HOST</text>
+
+  <g>
+    <rect x="110" y="88" width="380" height="140" rx="12" fill="#111a2a" stroke="#2a3d56"/>
+    <text x="134" y="124" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="17" font-weight="bold" fill="#c4d2e2">ingest — ASF · DMA · GFW</text>
+    <text x="134" y="156" font-size="15" fill="#8ea6c0">credentials live here, and only here</text>
+    <text x="134" y="180" font-size="15" fill="#8ea6c0">runs before the seal, never after</text>
+  </g>
+
+  <g>
+    <rect x="1130" y="88" width="330" height="140" rx="12" fill="#111a2a" stroke="#2a3d56"/>
+    <text x="1154" y="124" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="17" font-weight="bold" fill="#c4d2e2">Claude Desktop</text>
+    <text x="1154" y="156" font-size="15" fill="#8ea6c0">MCP client on the host —</text>
+    <text x="1154" y="180" font-size="15" fill="#8ea6c0">outside the boundary</text>
+  </g>
+
+  <!-- ingest arrow into enclave -->
+  <line x1="300" y1="228" x2="300" y2="296" stroke="#7fa8d0" stroke-width="2.5" marker-end="url(#arr)"/>
+  <text x="318" y="272" font-size="15" fill="#84a0be">loads data before sealing</text>
+
+  <text x="1313" y="272" font-size="15" fill="#d8c9a2">stdio via docker exec</text>
+  <text x="1313" y="294" font-size="15" fill="#d8c9a2">a pipe, not a port</text>
+
+  <!-- ═══════════ ENCLAVE ═══════════ -->
+  <rect x="40" y="310" width="1520" height="530" rx="16" fill="#0d1420" stroke="#3d5a7e" stroke-width="2.5"/>
+  <rect x="48" y="318" width="1504" height="514" rx="12" fill="none" stroke="#3d5a7e" stroke-width="1" stroke-dasharray="7 6" stroke-opacity="0.7"/>
+  <!-- wall gap for the pipe -->
+  <rect x="1283" y="306" width="24" height="10" fill="#0a0f18"/>
+
+  <g transform="translate(80,310)">
+    <rect x="-14" y="-13" width="28" height="26" rx="4" fill="#0a0f18" stroke="#48dc8c" stroke-width="2"/>
+    <path d="M-7 -13 v-6 a7 7 0 0 1 14 0 v6" fill="none" stroke="#48dc8c" stroke-width="2"/>
+    <circle cx="0" cy="0" r="3" fill="#48dc8c"/>
+  </g>
+  <rect x="108" y="296" width="620" height="28" fill="#0a0f18"/>
+  <text x="118" y="316" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="16" font-weight="bold" fill="#48dc8c">nightglass_enclave · internal: true — NO ROUTE OUT</text>
+
+  <!-- stores row -->
+  <g>
+    <rect x="110" y="370" width="340" height="140" rx="12" fill="#111a2a" stroke="#2a3d56"/>
+    <text x="134" y="406" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="17" font-weight="bold" fill="#c4d2e2">ollama</text>
+    <text x="134" y="438" font-size="15" fill="#8ea6c0">qwen2.5 14B — chat</text>
+    <text x="134" y="462" font-size="15" fill="#8ea6c0">bge-m3 — embeddings</text>
+  </g>
+  <g>
+    <rect x="490" y="370" width="340" height="140" rx="12" fill="#111a2a" stroke="#2a3d56"/>
+    <text x="514" y="406" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="17" font-weight="bold" fill="#c4d2e2">qdrant</text>
+    <text x="514" y="438" font-size="15" fill="#8ea6c0">intel document chunks,</text>
+    <text x="514" y="462" font-size="15" fill="#8ea6c0">embedded in-enclave</text>
+  </g>
+  <g>
+    <rect x="870" y="370" width="340" height="140" rx="12" fill="#111a2a" stroke="#2a3d56"/>
+    <text x="894" y="406" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="17" font-weight="bold" fill="#c4d2e2">postgis</text>
+    <text x="894" y="438" font-size="15" fill="#8ea6c0">scenes · detections · AIS —</text>
+    <text x="894" y="462" font-size="15" fill="#8ea6c0">the space–time join lives here</text>
+  </g>
+
+  <!-- api hub -->
+  <g>
+    <rect x="490" y="580" width="340" height="96" rx="12" fill="#111a2a" stroke="#2a3d56"/>
+    <text x="514" y="616" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="17" font-weight="bold" fill="#c4d2e2">api — FastAPI</text>
+    <text x="514" y="648" font-size="15" fill="#8ea6c0">the six tools, defined once</text>
+  </g>
+  <path d="M600 580 V545 H280 V516" stroke="#7fa8d0" stroke-width="2.5" fill="none" marker-end="url(#arr)"/>
+  <line x1="660" y1="580" x2="660" y2="516" stroke="#7fa8d0" stroke-width="2.5" marker-end="url(#arr)"/>
+  <path d="M720 580 V545 H1040 V516" stroke="#7fa8d0" stroke-width="2.5" fill="none" marker-end="url(#arr)"/>
+
+  <!-- consumers -->
+  <g>
+    <rect x="330" y="716" width="360" height="96" rx="12" fill="#111a2a" stroke="#2a3d56"/>
+    <text x="354" y="752" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="17" font-weight="bold" fill="#c4d2e2">agent — LangGraph</text>
+    <text x="354" y="784" font-size="15" fill="#8ea6c0">one-shot; halts at the human gate</text>
+  </g>
+  <g>
+    <rect x="948" y="716" width="320" height="96" rx="12" fill="#111a2a" stroke="#2a3d56"/>
+    <text x="972" y="752" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="17" font-weight="bold" fill="#c4d2e2">mcp — FastMCP</text>
+    <text x="972" y="784" font-size="15" fill="#8ea6c0">the same six tools over stdio</text>
+  </g>
+  <path d="M510 716 V696 H600 V682" stroke="#7fa8d0" stroke-width="2.5" fill="none" marker-end="url(#arr)"/>
+  <path d="M1108 716 V696 H720 V682" stroke="#7fa8d0" stroke-width="2.5" fill="none" marker-end="url(#arr)"/>
+
+  <!-- stdio pipe: dashed, through the wall — drawn last so it crosses on top -->
+  <path d="M1295 228 V745 H1268" stroke="#f5cd7e" stroke-width="2.5" stroke-dasharray="7 6" fill="none" marker-end="url(#arra)"/>
+
+  <!-- ═══════════ PROVISION ═══════════ -->
+  <rect x="40" y="880" width="1520" height="150" rx="14" fill="#12100a" stroke="#6e5a28" stroke-dasharray="8 7" stroke-opacity="0.9"/>
+  <text x="70" y="916" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="16" font-weight="bold" fill="#f5cd7e">nightglass_provision — profile-gated · the ONLY egress · never runs during operation</text>
+
+  <g font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="14">
+    <rect x="70"   y="944" width="150" height="40" rx="8" fill="#1b1710" stroke="#6e5a28"/><text x="88"   y="969" fill="#d8c9a2">model-puller</text>
+    <rect x="234"  y="944" width="170" height="40" rx="8" fill="#1b1710" stroke="#6e5a28"/><text x="252"  y="969" fill="#d8c9a2">corpus-fetcher</text>
+    <rect x="418"  y="944" width="180" height="40" rx="8" fill="#1b1710" stroke="#6e5a28"/><text x="436"  y="969" fill="#d8c9a2">granule-fetcher</text>
+    <rect x="612"  y="944" width="140" height="40" rx="8" fill="#1b1710" stroke="#6e5a28"/><text x="630"  y="969" fill="#d8c9a2">ais-fetcher</text>
+    <rect x="766"  y="944" width="200" height="40" rx="8" fill="#1b1710" stroke="#6e5a28"/><text x="784"  y="969" fill="#d8c9a2">coastline-fetcher</text>
+    <rect x="980"  y="944" width="140" height="40" rx="8" fill="#1b1710" stroke="#6e5a28"/><text x="998"  y="969" fill="#d8c9a2">gfw-fetcher</text>
+  </g>
+  <line x1="1136" y1="964" x2="1360" y2="964" stroke="#f5cd7e" stroke-width="2.5" marker-end="url(#arra)"/>
+  <text x="1378" y="970" font-family="'DejaVu Sans Mono', ui-monospace, monospace" font-size="16" font-weight="bold" fill="#f5cd7e">internet</text>
+</svg>
