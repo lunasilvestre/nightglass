@@ -1,11 +1,12 @@
 """Grounded generation, and the refusal path.
 
-The argument for this whole milestone is one transcript. Asked, in Portuguese,
-*"o que é uma embarcação escura?"* with no retrieved context, qwen2.5:14b
-answered that it is a vessel *"pintado em cores escuras"* — painted in dark
-colours. Fluent, confident, and reading the central term of this project as a
-description of paint. Nothing in the model's priors contains the operational
-meaning, and nothing in its tone signals that.
+The argument for this whole milestone is one transcript. Asked *"what is a dark
+vessel?"* with no retrieved context, qwen2.5:14b replies that it "isn't a
+standard term in common usage or in specific fields" and offers readings from
+literature, philosophy, art symbolism and retrocomputing. Fluent, confident, and
+containing no maritime meaning at all for the central term of this project.
+Nothing in the model's priors holds the operational sense, and nothing in its
+tone signals the gap.
 
 So generation here is constrained three ways, in increasing order of how much
 they can be trusted:
@@ -35,10 +36,7 @@ from nightglass.rag.documents import Marking
 from nightglass.rag.index import DocumentIndex
 from nightglass.schemas import Chunk, Claim, GroundedAnswer
 
-REFUSAL_TEXT = (
-    "Not supported by available sources. / "
-    "Não suportado pelas fontes disponíveis."
-)
+REFUSAL_TEXT = "Not supported by available sources."
 
 _SYSTEM = """\
 You are an intelligence support assistant working inside an air-gapped maritime \
@@ -56,8 +54,8 @@ is not in the CONTEXT.
 3. If the CONTEXT does not contain enough to answer, set "supported" to false and \
 return an empty claims list. Saying you cannot answer is a correct and valuable \
 outcome; guessing is not.
-4. Answer in the SAME LANGUAGE as the question. If the question is in Portuguese, \
-every claim must be written in Portuguese, even when the sources are in English.
+4. Answer in English, even when the question or the sources are in another \
+language. Translate what you cite rather than quoting it untranslated.
 5. Prefer the operational or technical meaning of a term over its everyday \
 meaning. Terms of art in this domain frequently do not mean what they appear to \
 mean in ordinary language.

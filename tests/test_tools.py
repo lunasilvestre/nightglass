@@ -256,10 +256,6 @@ def test_the_precision_flag_is_off():
     assert DETECTOR_PRECISION_VALIDATED is False
 
 
-def test_reasons_are_localised():
-    pt = rate_verdict(_correlation(ground_truth=False), language="pt")
-    assert any("ground truth" in r for r in pt.reasons)
-    assert any("taxa de base publicada" in r for r in pt.reasons)
 
 
 @pytest.mark.parametrize(
@@ -268,13 +264,12 @@ def test_reasons_are_localised():
         "25% of detections had no AIS correspondence.",
         "The dark-vessel rate was one in four.",
         "Unmatched detections accounted for 25 per cent of the total.",
-        "25% das deteções não têm correspondência AIS.",
-        "A taxa de embarcações escuras foi de 25%.",
-        "A fração sem AIS é significativa.",
+        "The fraction without AIS is significant.",
         "The proportion of vessels that were dark is notable.",
         # The complement states the same number and must not walk through.
         "75% of detections were matched to a vessel reporting AIS.",
-        "75% das deteções têm correspondência AIS.",
+        # Negation and noun two words apart — the shape that got through first.
+        "25% of detections do not have AIS correspondence.",
     ],
 )
 def test_rate_shaped_claims_are_caught(text):
@@ -286,7 +281,7 @@ def test_rate_shaped_claims_are_caught(text):
     [
         "15 of 60 detections had no AIS correspondence.",
         "45 detections matched a vessel reporting AIS, median separation 119 m.",
-        "15 deteções não têm correspondência AIS na fonte consultada.",
+        "15 detections have no AIS correspondence in the source consulted.",
         "Detection det_00005 at 56.55897 N is put forward for adjudication.",
         "The match radius was 500 m and 88% of AIS vessels over 30 m were recovered.",
     ],
@@ -359,8 +354,7 @@ def test_the_intrep_says_nothing_was_assessed():
     caveats = _caveats(
         c,
         rate_verdict(c),
-        _T["en"],
-        "en",
+        _T,
         dropped_rates=[],
         narrative_failed=None,
         chunks=[],
@@ -372,19 +366,10 @@ def test_the_intrep_says_nothing_was_assessed():
     # And it comes before the rate caveat: a reader who learns nothing was
     # assessed does not need to be told the rate is unquotable first.
     assert caveats.index(assessed[0]) < next(
-        i for i, x in enumerate(caveats) if x.startswith(_T["en"]["no_rate"].strip()[:20])
+        i for i, x in enumerate(caveats) if x.startswith(_T["no_rate"].strip()[:20])
     )
 
 
-def test_the_no_ais_caveat_is_localised():
-    from nightglass.tools.intrep import _T, _caveats
-
-    c = _no_matches()
-    caveats = _caveats(
-        c, rate_verdict(c, language="pt"), _T["pt"], "pt",
-        dropped_rates=[], narrative_failed=None, chunks=[],
-    )
-    assert any("não deteções escuras" in x for x in caveats)
 
 
 def test_a_correlation_with_matches_does_not_get_the_no_ais_caveat():
@@ -392,7 +377,7 @@ def test_a_correlation_with_matches_does_not_get_the_no_ais_caveat():
 
     c = _correlation(ground_truth=True)
     caveats = _caveats(
-        c, rate_verdict(c), _T["en"], "en",
+        c, rate_verdict(c), _T,
         dropped_rates=[], narrative_failed=None, chunks=[],
     )
     assert not any("has been assessed against AIS" in x for x in caveats)

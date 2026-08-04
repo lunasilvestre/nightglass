@@ -205,7 +205,6 @@ async def correlate(
 async def draft_intrep(
     correlation: CorrelationResult = Body(..., embed=True),
     context_chunks: list[Chunk] = Body(default_factory=list, embed=True),
-    language: str = Body(default="en", embed=True),
     narrative: bool = Body(default=True, embed=True),
 ) -> INTREP:
     """§5: `draft_intrep(correlation, context_chunks) -> INTREP`.
@@ -220,7 +219,6 @@ async def draft_intrep(
         _draft_intrep,
         correlation,
         context_chunks,
-        language=language,
         narrative=narrative,
     )
 

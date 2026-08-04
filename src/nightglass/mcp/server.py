@@ -209,7 +209,6 @@ def draft_intrep(
     query: str | None = None,
     min_length_m: float = 15.0,
     scene_id: str | None = None,
-    language: str = "en",
 ) -> INTREP:
     """Draft a structured intelligence report over an area and window.
 
@@ -223,7 +222,6 @@ def draft_intrep(
     recorded detector run, so this report is drawn from the same detections,
     under the same ids, as the correlate call you may already have made.
 
-    language accepts "en" or "pt" and sets the language of the findings.
     """
     from nightglass.tools import correlate as _correlate
     from nightglass.tools import doc_search as _doc_search
@@ -231,7 +229,7 @@ def draft_intrep(
 
     correlation = _correlate(bbox, start, end, min_length_m, scene_id=scene_id)
     chunks = _doc_search(query) if query else []
-    return _draft_intrep(correlation, chunks, language=language)
+    return _draft_intrep(correlation, chunks)
 
 
 def main(argv: list[str] | None = None) -> int:

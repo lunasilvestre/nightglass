@@ -26,7 +26,13 @@ AOI=${AOI:-kattegat}
 BBOX=${BBOX:-10.5,55.5,12.5,57.5}
 START=${START:-2026-07-17T00:00:00Z}
 END=${END:-2026-07-18T00:00:00Z}
-QUESTION=${QUESTION:-"Houve alguma embarcação sem correspondência AIS na área de interesse em 17 de julho de 2026? Explica o teu raciocínio."}
+# The question asks two things a single tool cannot answer together: what is in
+# the water, and what an unmatched detection means. The first is spatial, the
+# second is documentary. Asked only the first, the model reasonably reaches for
+# `correlate` — which does all three spatial steps in one call and is the right
+# choice, but demonstrates no chaining. §M4's bar is about chaining, so the
+# question has to be one a real analyst would ask in full.
+QUESTION=${QUESTION:-"First, which Sentinel-1 scenes cover the area of interest on 17 July 2026? Then, for the scene acquired at 05:23, how many vessels did the detector find, and which of those have no AIS correspondence?"}
 
 rule() { printf '\n%s%s%s\n%s\n' "$BOLD" "$1" "$RESET" "$(printf '%.0s─' $(seq 1 ${#1}))"; }
 
@@ -65,7 +71,7 @@ rule "4. What the report may and may not say"
 docker compose exec -T -e NIGHTGLASS_AOI="$AOI" api python - <<PY
 from nightglass.mcp.server import draft_intrep
 r = draft_intrep(bbox=[${BBOX}], start="${START}", end="${END}",
-                 query="embarcação escura AIS interpretação", language="pt")
+                 query="dark vessel AIS interpretation")
 print(f"  marking   {r.marking}")
 print(f"  claims    {len(r.claims)}, of which unsupported: {len(r.unsupported_claims)}")
 print("\n  ${BOLD}every claim carries its references${RESET}")
@@ -87,9 +93,9 @@ cat <<EOF
 ${BOLD}The one number this milestone is careful about${RESET}
   The AIS over Denmark ${GREEN}is${RESET} ground truth, so ${BOLD}rate_is_quotable is true${RESET} -- the
   source side of the guard passes. The report still refuses to state a rate,
-  because the ${BOLD}detector's coastal precision is not validated${RESET}: 25% of detections
+  because the ${BOLD}detector's precision is not validated${RESET}: 40% of detections
   are unmatched against a published base rate of ~5%, and the excess is coastal
-  clutter, not dark vessels.
+  clutter and isolated false alarms, not dark vessels.
 
   Two independent conditions, checked separately, and only one of them was
   guarded before M4. See ${DIM}src/nightglass/tools/intrep.py${RESET}.

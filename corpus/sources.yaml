@@ -272,7 +272,7 @@ groups:
         page: 32023R1214
 
   # ---------------------------------------------------------------------------
-  # Copernicus EMS — real activations over the Portuguese AOI
+  # Copernicus EMS — real activations over the Lisbon AOI
   # ---------------------------------------------------------------------------
   # Not maritime-security documents, and included knowing that. What they give
   # the corpus is real, dated, citable environmental context for the demo AOI:

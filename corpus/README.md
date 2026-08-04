@@ -22,7 +22,7 @@ be able to reproduce the demo.
 | ICEYE Ltd | 17 | SAR imaging geometry, azimuth, radiometric calibration, geolocation accuracy, product levels, glossary |
 | International Maritime Organization | 10 | The AIS carriage and operation obligation, its exceptions, LRIT, port state control |
 | European Union (EUR-Lex) | 8 | AIS obligation inside EU waters, ship-to-ship transfer notification, AIS interruption as conduct, EMSA's mandate |
-| Copernicus EMS | 4 | Real, dated, citable environmental context over the Portuguese AOI |
+| Copernicus EMS | 4 | Real, dated, citable environmental context over the Iberian AOI |
 | **Synthetic** | **21** | Doctrine, tradecraft, AOI baselines, reporting conventions |
 | **Total** | **60** | |
 
@@ -82,9 +82,10 @@ Ground rules they were written under:
 - **Doctrine, not data.** The memos carry definitions, taxonomies and reporting
   conventions. Quantitative claims about the water come from the pipeline or
   from the real documents, not from here.
-- Fifteen are in English and six in Portuguese. The Portuguese ones exist so
-  retrieval is exercised in both directions — an English query has to reach
-  Portuguese doctrine too, not only the reverse.
+- All twenty-one are in English. Six were originally drafted in another language
+  and were rewritten; `bge-m3` was chosen for its multilingual retrieval and
+  still earns that choice on a national deployment, but nothing in this corpus
+  exercises it today.
 
 ## The deliberate gap
 

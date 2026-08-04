@@ -218,7 +218,7 @@ services:
   # Deliberately behind a profile so `make up` never starts it. The agent is a
   # graph that runs to a human-in-the-loop interrupt and halts; a daemon wrapper
   # around it would exist only to satisfy a healthcheck. Invoke it directly:
-  #     make ask Q="Houve alguma embarcação não declarada ...?"
+  #     make ask Q="Were there any undeclared vessels ...?"
   agent:
     <<: *enclave
     profiles: ["cli"]

@@ -29,7 +29,7 @@ quantitatively is claimed here and nowhere else.
 
 The Danish national AIS archive is a dense terrestrial receiver network over the
 vessel's home waters, published as complete daily files. That combination —
-dense reception plus published archive — does not exist for Portuguese waters at
+dense reception plus published archive — does not exist for Iberian waters at
 any price this project can reach.
 
 ## 2. Overpass windows

@@ -52,9 +52,9 @@ from nightglass.tools.base import (
 
 #: The seaward shoreline buffer every detector run in this deployment uses.
 #: Not a default pulled out of the air — measured over the Kattegat: 300 m
-#: leaves 35% of detections unmatched, 1 km leaves 25%, 3 km leaves 14%, and
-#: going from 300 m to 3 km drops 21 detections of which 18 were unmatched and
-#: only 3 matched. 1 km is where buying precision stops being nearly free.
+#: leaves 51% of detections unmatched, 1 km leaves 40%, 3 km leaves 23%, and
+#: going from 300 m to 3 km drops 19 detections of which 17 were unmatched and
+#: only 2 matched. 1 km is where buying precision stops being nearly free.
 #: It must equal what `nightglass-spatial detect` uses, or every run this tool
 #: looks for will be a miss and it will recompute the pixels every call.
 COASTLINE_BUFFER_M = 1000.0
@@ -500,7 +500,7 @@ def _no_ais(scene_id: str, window_min: float) -> str:
     """Why matching cannot run here, and what would make it able to.
 
     Deliberately not "run `make load-ais`" for every AOI, because for the
-    Portuguese one that instruction is a lie: aisstream is a live feed with no
+    Lisbon AOI that instruction is a lie: aisstream is a live feed with no
     archive, so no recording started today can serve a June acquisition. A
     remediation hint that cannot be followed is worse than none — it sends the
     reader off to find a file that does not exist.

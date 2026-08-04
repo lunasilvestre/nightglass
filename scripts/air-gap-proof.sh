@@ -40,19 +40,19 @@ docker compose exec -T api curl -sS -m 5 http://ollama:11434/api/tags \
 
 rule
 echo '$ chat completion against the local model'
-# The prompt is deliberately NOT "o que é uma embarcação escura?". Asked that
-# ungrounded, the model answers that it is a boat painted in dark colours --
-# fluent, confident, and domain-wrong. That answer is worth a great deal, but as
-# the M2 before/after contrast, not sitting underneath the words "inference
-# works" in the M1 capture. See NOTES.md.
+# The prompt is deliberately NOT "what is a dark vessel?". Asked that
+# ungrounded, the model answers with hull colour or denies the term has a
+# maritime meaning -- fluent, confident, and domain-wrong. That answer is worth
+# a great deal, but as the M2 before/after contrast, not sitting underneath the
+# words "inference works" in the M1 capture. See NOTES.md.
 docker compose exec -T api curl -sS -m 180 http://ollama:11434/api/chat \
   -d "$(python3 -c '
 import json, os
 print(json.dumps({
   "model": os.environ.get("OLLAMA_CHAT_MODEL", "qwen2.5:14b-instruct-q4_K_M"),
   "messages": [{"role": "user",
-                "content": "Responde numa frase, em portugues: o que e radar de "
-                           "abertura sintetica e porque funciona de noite?"}],
+                "content": "Answer in one sentence: what is synthetic aperture "
+                           "radar and why does it work at night?"}],
   "stream": False,
 }))' )" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["message"]["content"].strip())' \

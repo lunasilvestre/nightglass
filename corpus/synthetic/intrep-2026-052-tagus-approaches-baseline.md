@@ -73,7 +73,7 @@ Open literature on well-instrumented European waters reports on the order of
 percent of the total — survives review as genuinely unexplained.
 
 **This cell does not quote an unmatched rate for the LISBON AOI**, because no
-complete historical point-level AIS reference exists for Portuguese waters. What
+complete historical point-level AIS reference exists for Iberian waters. What
 can be stated for this AOI is the mechanism and the individual candidates, with
 the reasoning shown. Rates are quoted only over the Danish validation AOI. See
 INTREP 2026/018.

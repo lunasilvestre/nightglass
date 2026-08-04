@@ -3,8 +3,7 @@
 **Air-gapped SAR intelligence assistant.** Finds vessels in Sentinel-1 radar imagery, checks
 them against AIS, and drafts a cited intelligence report — with no route to the internet.
 
-An analyst asks, in Portuguese, whether anything undeclared has moved through an area in the
-last 72 hours. NIGHTGLASS searches the SAR catalogue for scenes covering it, runs its own
+An analyst asks whether anything undeclared has moved through an area in the last 72 hours. NIGHTGLASS searches the SAR catalogue for scenes covering it, runs its own
 detector over the radar amplitude, correlates each detection against vessel position reports in
 space *and* time, pulls supporting context out of an intelligence document corpus, and produces
 an INTREP in which every claim carries the scene, detection and document IDs it rests on. It
@@ -26,7 +25,7 @@ tools over both HTTP and MCP (M4), and runs a LangGraph agent that halts at a hu
 resumes in a different container (M5). Over the Danish validation AOI, 21 of 35 detections match
 a vessel that was actually there at a median 104 m, and every AIS vessel over 200 m inside the
 scene footprint is recovered. The local 14B model
-chains three tools unaided from a Portuguese question; Claude Code drives the same tools over a
+chains three tools unaided from a plain analyst question; Claude Code drives the same tools over a
 pipe from outside the enclave. What remains is packaging and the recording (M6). `NOTES.md` is
 the running decision log.
 
@@ -150,9 +149,9 @@ models: bge-m3:latest, qwen2.5:14b-instruct-q4_K_M
 
 ----------------------------------------------------------------------
 $ chat completion against the local model
-Radar de Abertura Sintética (SAR) é uma tecnologia que permite capturar imagens
-detalhadas da superfície da Terra usando ondas de rádio, funcionando bem de noite
-porque não depende da luz solar para operar.
+Synthetic Aperture Radar (SAR) is a radar technique that creates high-resolution
+images regardless of weather or lighting conditions by synthesizing a large
+antenna aperture, which allows it to operate effectively both day and night.
 
 ----------------------------------------------------------------------
 No route to the internet. Inference ran anyway.
@@ -175,91 +174,80 @@ The argument for the whole document layer is one comparison. **Same model, same 
 machine — the only difference is whether retrieval is on.**
 
 ```
-$ nightglass-corpus ask "o que é uma embarcação escura?" --ungrounded
+$ nightglass-corpus ask "what is a dark vessel?" --ungrounded
 
-A expressão "embarcação escura" não tem um significado específico ou comum na
-náutica ou em outros contextos conhecidos. É possível que você esteja se
-referindo a algum tipo de metáfora, título de obra literária, filme, ou outro
-contexto específico onde essa frase é usada.
+UNGROUNDED — no retrieval, model priors only
+--------------------------------------------
+A "dark vessel" isn't a standard term in common usage or in specific fields
+like biology, chemistry, or astronomy, so its meaning can vary depending on
+the context it's used in. Here are a few possible interpretations:
+
+1. **Literature and Fiction**: ... an object with mysterious or ominous
+   qualities, often associated with supernatural powers or evil forces.
+2. **Philosophy and Metaphor**: ... something that holds negative emotions,
+   secrets, or darkness within it.
+3. **Art and Symbolism**: ... an abstract concept such as sorrow, despair, or
+   the unknown.
+4. **Technology (Retrocomputing)**: ... a black case or enclosure for hardware
+   components, emphasizing aesthetics over functionality.
 ```
 
-The central term of this entire project, and the model has no prior for it. Across samples it
-either declares the term to have no established maritime meaning, as here, or offers hull colour
-as a guess — *"pintado em cores escuras"*. Both are wrong, and neither is hedged in a way an
-analyst skimming would catch.
+Fluent, confident, four confident readings, and **not one of them maritime**. The model states
+outright that the term "isn't a standard term in common usage". Nothing in its priors holds the
+operational meaning, and nothing in its tone signals the gap — which is the entire argument for
+retrieval over a curated corpus rather than a bigger model.
 
 ```
-$ nightglass-corpus ask "o que é uma embarcação escura?" --sources
+$ nightglass-corpus ask "what is a dark vessel?" --sources
 
 GROUNDED — UNCLASSIFIED // SYNTHETIC
+----------------------------------------
+1. A dark vessel is a vessel detected by a sensor for which no corresponding
+   Automatic Identification System (AIS) report can be found in the reference
+   feed within a stated distance and time tolerance of the detection's position
+   and the image acquisition instant.
+   [intrep-2026-014-dark-vessel-definition#0000]
+   [intsum-2026-021-dark-vessel-doctrine#0000]
 
-1. Chama-se embarcação escura a uma embarcação detetada por sensor — neste caso uma
-   deteção de amplitude em imagem de radar de abertura sintética (SAR) Sentinel-1 —
-   para a qual não é possível encontrar qualquer mensagem AIS correspondente na fonte
-   de referência utilizada, dentro de uma tolerância declarada de distância e de tempo
-   em torno da posição da deteção e do instante de aquisição da imagem.
-   [intsum-2026-021-embarcacao-escura-doutrina#0000]
-2. "Escura" é uma afirmação sobre a ausência de uma emissão esperada, numa fonte
-   concreta, num momento concreto — e sobre mais nada.
-   [intsum-2026-021-embarcacao-escura-doutrina#0002]
+sources
+----------------------------------------
+[intrep-2026-014-dark-vessel-definition#0000]  (UNCLASSIFIED // SYNTHETIC)
+[intsum-2026-021-dark-vessel-doctrine#0000]    (UNCLASSIFIED // SYNTHETIC)
 ```
 
-Every claim carries the chunk IDs it came from, and every one of them is retrievable. The
-`UNCLASSIFIED // SYNTHETIC` marking was **not** written by the drafter or the model: it is
-computed from the markings of the chunks that were actually cited. Ask something the real
-documents answer and the same command returns plain `UNCLASSIFIED`:
+Same model, same question, answered from retrieved sources — with the chunk ids to check it
+against, and marked `UNCLASSIFIED // SYNTHETIC` because the sources it actually cited carry that
+caveat. Nothing propagated that marking by hand.
 
 ```
-$ nightglass-corpus ask "Under what circumstances does IMO guidance permit a master
-                         to switch off AIS, and what must the master then do?" --sources
+$ nightglass-corpus ask "How many dark vessels were detected off Madeira in 2019?"
 
 GROUNDED — UNCLASSIFIED
-
-1. AIS may be switched off if the master believes that its continual operation might
-   compromise the safety or security of his/her ship.
-   [imo-a1106-29-ais-operational-use#0015] [imo-a917-22-ais-guidelines#0013]
-2. If AIS is switched off, the master should report this action and the reason for doing
-   so to the competent authority if operating in a mandatory ship reporting system.
-   [imo-a1106-29-ais-operational-use#0015]
-3. The master must record the action of switching off AIS and the reason for it in the
-   ship's logbook.
-   [imo-a1106-29-ais-operational-use#0015] [imo-a917-22-ais-guidelines#0013]
-```
-
-And the part that matters more than either — a question the corpus genuinely cannot answer:
-
-```
-$ nightglass-corpus ask "Quantas embarcações escuras foram detetadas ao largo da Madeira em 2019?"
-
-GROUNDED — UNCLASSIFIED
-
-Not supported by available sources. / Não suportado pelas fontes disponíveis.
+----------------------------------------
+Not supported by available sources.
 
 8 chunk(s) were retrieved but none supported an answer.
 ```
 
-The gap is real and documented, not engineered per question: no document in the corpus reports
-detections for Madeira or the Azores, and `corpus/README.md` says so explicitly so that adding
-one is a deliberate act rather than an accident.
+The refusal is worth more than either answer. Eight chunks came back and none of them supported
+a claim, so the system declined rather than assembling something plausible out of adjacent
+material. The gap is deliberate and documented in `corpus/README.md`: no document in the corpus
+reports vessel detections off Madeira, and adding one would quietly delete this test.
 
-**Refusal is enforced structurally, not requested.** The model is asked to cite, and it is given
-a JSON schema in which a claim cannot exist without a citation list — but both of those are
-requests. What decides the outcome is a check afterwards: every cited chunk ID is verified
-against the set actually retrieved, fabricated IDs are dropped, claims left with none are
-discarded, and an empty result is a refusal regardless of the model reporting itself as
-confident. §7's position is that output which cannot be traced cannot be graded and therefore
-cannot enter the intelligence cycle, so the untraceable parts are removed rather than published
-with a caveat.
-
-**Cross-lingual retrieval works in both directions**, which the §6 demo depends on. A Portuguese
-query reaches English IMO and EU sources; an English query reaches the Portuguese memos and ranks
-them first:
+**The corpus is entirely English, and `bge-m3` is still the right embedding model** — but for a
+reason this repository no longer demonstrates. It was chosen because deployments are national
+and a corpus and its queries will not always share a language; six memos were originally drafted
+in another language to exercise that, and they have since been rewritten in English. The
+measured cross-language separation that justified the choice is recorded in `NOTES.md` (0.842
+cosine against a translated equivalent, 0.283 against unrelated text in the same language), and
+nothing in the shipped corpus exercises it today. Stated plainly rather than left as an
+unsupported claim.
 
 ```
 $ nightglass-corpus search "how should AIS duplicate messages be handled before matching?"
 
-0.7143  [intsum-2026-030-correlacao-sar-ais#0001]   Metodologia de Correlação SAR–AIS
 0.6163  [imo-msc74-69-performance-standards#0023]   Resolution MSC.74(69) — …shipborne AIS
+0.6156  [imo-a1106-29-ais-operational-use#0017]     Resolution A.1106(29) — onboard use of AIS
 ```
 
 ### The corpus
@@ -269,7 +257,7 @@ $ nightglass-corpus search "how should AIS duplicate messages be handled before 
 | ICEYE Ltd | 17 | SAR imaging geometry, azimuth, radiometry, geolocation accuracy, product levels |
 | International Maritime Organization | 10 | The AIS carriage and operation obligation, its exceptions, LRIT, port state control |
 | European Union (EUR-Lex) | 8 | The AIS obligation in EU waters, STS notification, AIS interruption as conduct |
-| Copernicus EMS | 4 | Dated environmental context over the Portuguese AOI |
+| Copernicus EMS | 4 | Dated environmental context over the Lisbon AOI |
 | Synthetic INTREP/INTSUM | 21 | Doctrine, tradecraft, AOI baselines, reporting conventions |
 
 Three real documents do the load-bearing work, and they are why "dark" is a deviation from a
@@ -431,7 +419,7 @@ it, are in [`docs/evidence/`](docs/evidence). `make dark-proof` regenerates all 
 ### It generalises
 
 Every parameter above was set while looking at one Danish scene, which is a real overfitting
-risk. Running the same configuration unchanged over a Portuguese granule — different platform
+risk. Running the same configuration unchanged over a Lisbon-AOI granule — different platform
 (S1A), different sea state, different beam geometry:
 
 | | Kattegat (S1D, 17 Jul) | Lisbon (S1A, 13 Jun) |
@@ -449,7 +437,7 @@ measured over Denmark.
 ### A second detector, over the identical granule
 
 Denmark validates the matcher against AIS. Nothing there validates the *detector*, so the
-Portuguese scene is cross-checked against Global Fishing Watch's published SAR detections — and
+Lisbon scene is cross-checked against Global Fishing Watch's published SAR detections — and
 because each GFW feature id carries its source granule, that granule is one of the six on disk.
 This is detection-for-detection over the same pixels, not "they saw N in this box and we saw M".
 `make fetch-gfw` (provision network, `GFW_TOKEN` from `~/.config/eo-credentials.env`), then
@@ -495,7 +483,7 @@ The halt is demonstrated the only way that means anything — the drafting conta
 a different one picks the run up:
 
 ```
-$ make ask Q="Houve alguma embarcação sem correspondência AIS em 17 de julho de 2026?"
+$ make ask Q="Were there any vessels with no AIS correspondence on 17 July 2026?"
 ⏸  HUMAN_GATE — the graph has stopped
   marking             UNCLASSIFIED // SYNTHETIC // DRAFT — NOT RELEASABLE
   claims              18
@@ -533,16 +521,16 @@ The interesting decisions in this graph are about where the model is kept *out*.
 | `release` | nobody | prose assembled from the report's own fields |
 
 That split is a fix for a measured failure, not caution for its own sake. At M4 the model got
-every per-scene count right, listed thirty real detection ids, and still wrote *"das 60 detecções
-… 15 não"* — conflating two scenes while summarising them. No prompt fixes that reliably, so the
+every per-scene count right, listed thirty real detection ids, and still summarised them as "of
+the 60 detections … 15 were not" — conflating two scenes. No prompt fixes that reliably, so the
 released answer is not generated: every line comes from a `Claim` or a computed caveat.
 
 On the first end-to-end run the rate guard earned its place unprompted. The model wrote a
 proportion into the assessment section, and the draft came back carrying a caveat nobody typed:
 
 ```
-1 afirmação(ões) geradas foram removidas antes da redação por indicarem
-uma taxa de deteções sem correspondência.
+1 generated claim(s) were removed before drafting because they stated a rate
+of unmatched detections.
 ```
 
 The prompt layer and the schema layer both let it through. The check caught it.
@@ -635,18 +623,25 @@ not required to carry AIS all produce it. A lead, not a conclusion.
 
 ### The same tools, driven by the 14B model inside the enclave
 
-A Portuguese question, no bbox and no scene id in the prompt, tools chosen by the model:
+A plain analyst question, no bbox and no scene id in the prompt, tools chosen by the model:
 
 ```
-1. stac_search({"bbox": [10.5,55.5,12.5,57.5], "start": "2026-07-17T00:00:00Z", …})   -> 2 scenes
-2. detect_vessels({"scene_id": "S1D_…_BC13"})                                          -> 60
-3. ais_match({"detections": [60 ids]})                          -> matched 45, unmatched 15
+1. stac_search(...)                                    -> 2 scenes
+2. detect_vessels({"scene_id": "S1A_IW_SLC__…_NWJ.csv"})
+   ERROR  no scene '…' in the catalogue. Run `make scenes` …
+3. ais_match({"detections": ["det-20260717-0523-…-0", …]})
+   ERROR  10 detection id(s) are not in detect.detections … ids are assigned by
+          the detector run and are not guessable.
+4. stac_search(...)   REPEAT — same tool, same arguments, told to advance
+5. detect_vessels({"scene_id": "S1D_…_BC13"})          -> 35 detections
+6. ais_match({"detections": [35 real ids]})            -> matched 21, unmatched 14
 ```
 
-45 and 15 are the hand-checked SQL's numbers, and the fifteen unmatched ids it reported back are
-**identical to the database's** — checked, not assumed. It hedged without being asked
-(*"leads para análise adicional … não podem ser consideradas como evidências conclusivas"*) and
-stated no rate.
+The model invented a scene id and ten detection ids on its first attempt. **Every one was
+refused**, with a message naming the fix, and the repeat detector caught the identical retry that
+followed. It then used the real ids and reached 21 and 14 — the hand-checked SQL's numbers. A
+tool surface that accepts a plausible-looking invented id is one whose provenance chain means
+nothing; this is what it looks like when it does not.
 
 That pair — a frontier model over a pipe from outside, a 14B model from inside, one tool
 surface — is the part worth having. A capability that only works with a frontier model on the
@@ -675,18 +670,18 @@ What comes out instead is a draft that carries its references and computes its o
 marking   UNCLASSIFIED // SYNTHETIC // DRAFT — NOT RELEASABLE
 claims    18, of which unsupported: 0
 
-  • 45 dessas deteções correspondem a uma embarcação que reporta AIS, após interpolar
-    a posição de cada embarcação para o instante de aquisição e corrigir o
-    deslocamento em azimute do SAR; separação mediana 96 m.        [scene×1; det×45]
+  • 23 of those detections correspond to a vessel reporting AIS, after interpolating
+    each vessel's position onto the acquisition instant and correcting for SAR
+    azimuth displacement; median separation 85 m.                  [scene×1; det×23]
 
-  - Nenhuma proporção de deteções sem correspondência é indicada neste relatório.
-    A precisão costeira do detetor não está validada. …
+  - No proportion of unmatched detections is stated in this report.
+    The detector's precision is not validated. …
   - Danish Maritime Authority — AIS data. …
-  - RASCUNHO — NÃO DIVULGÁVEL até revisão e libertação no controlo humano.
+  - DRAFT — NOT RELEASABLE until reviewed and released at the human gate.
 ```
 
-The DMA attribution stays in English inside a Portuguese report on purpose: a translated licence
-condition is not the licence condition.
+The DMA attribution is reproduced verbatim: a reworded licence condition is not the licence
+condition.
 
 ### Two decisions worth naming
 
@@ -712,8 +707,8 @@ carrying a note saying so and how to select them, so the bound is visible in the
 | **Ollama inside the enclave, not the host service** | The host has ollama on `:11434` with the models already pulled, and pointing compose at it would save re-downloading ~10 GB. It also needs `host.docker.internal:host-gateway` — a deliberate hole in the exact boundary this project exists to demonstrate — and it breaks "clone and `make up`". The model server belongs *inside* the enclave because in a real deployment there is no host to borrow from. Cost is paid once via `make pull-models`. |
 | Ollama over vLLM / TGI+TEI | **One service serves chat *and* embeddings**; vLLM and TGI are one-model-per-process and would need two containers. Ollama supports fully air-gapped operation, while vLLM needs network configuration to reach full isolation — which is the whole milestone. Models are content-addressed blobs in one directory, so the offline bundle is a tar of a folder, not an untangling of a HuggingFace cache. Honest limit: Ollama serialises concurrent requests and vLLM does ~3.2× the throughput. Irrelevant for one analyst. The line is *"Ollama for the enclave, vLLM if this became multi-tenant."* |
 | Qdrant over pgvector | Single binary, trivial offline deploy, no external dependencies. pgvector is already familiar from production work; Qdrant shows breadth and is a common air-gapped default. |
-| bge-m3 for embeddings | Genuinely multilingual. Measured: a Portuguese query against its English equivalent scores **0.842** cosine, against unrelated Portuguese text **0.283** — a 0.56 separation, so it keys on meaning rather than language. Deployments are national; the corpus and the queries will not both be English. This choice is one-way, since changing it means re-embedding everything. |
-| Qwen2.5 **14B** at q4_K_M | Fits consumer VRAM (~9 GB weights, ~15 GB resident with a 32k KV cache, on a 24 GB card), strong tool-calling, permissive licence. Verified chaining three distinct tools unprompted from a Portuguese question. |
+| bge-m3 for embeddings | Genuinely multilingual. Measured: a query against its translated equivalent scores **0.842** cosine, against unrelated text in the same language **0.283** — a 0.56 separation, so it keys on meaning rather than language. Deployments are national and a corpus will not always share a language with its queries; the shipped corpus is now all English, so this is insurance rather than a demonstrated feature. One-way, since changing it means re-embedding everything. |
+| Qwen2.5 **14B** at q4_K_M | Fits consumer VRAM (~9 GB weights, ~15 GB resident with a 32k KV cache, on a 24 GB card), strong tool-calling, permissive licence. Verified chaining three distinct tools unprompted from a plain analyst question. |
 | LangGraph over CrewAI | An explicit state machine with a genuinely interruptible node, which the human-in-the-loop gate needs. State persists and is inspectable while halted — a bare `input()` only blocks a thread. |
 | PostGIS for geometry | Spatial correlation belongs in a spatial database, not in Python. The dark-vessel join is one query in `src/nightglass/spatial/sql/dark_vessels.sql` — track interpolation via `LEAD`, the azimuth-displacement correction via `ST_Project`, distances via `geography` casts so they come back in metres rather than degrees. It stays a `.sql` file so it can be read top to bottom and run a CTE at a time. |
 | Scene as a STAC Item, not a bespoke table | `stac_search` (§5) is a catalogue query. Modelling the catalogue as STAC keeps the door open to pointing the same tool at a real STAC API — which is what a customer deployment has — rather than at a table only this project understands. The Item is stored whole in `jsonb`; the columns beside it are extracted for indexing. |
@@ -748,7 +743,7 @@ carrying a note saying so and how to select them, so the bound is visible in the
 
 Stated before being asked, because each one was tested rather than assumed.
 
-- **No free historical, complete point-level AIS exists for Portuguese waters.** GFW's ORBCOMM
+- **No free historical, complete point-level AIS exists for Iberian waters.** GFW's ORBCOMM
   sublicence forbids redistributing AIS or any derivative, DGRM publishes nothing, EMSA
   restricts SafeSeaNet to national administrations, and the free satellite-AIS tiers went away
   in the 2025 Kpler/S&P consolidation. So over Portugal, GFW detections are a **reference
@@ -805,7 +800,7 @@ Stated before being asked, because each one was tested rather than assumed.
 - **Dark ≠ guilty.** See the framing at the top.
 
 **Related work.** Magalhães, Falcão & Barbosa (2025), IST Lisbon — Sentinel-2 optical vessel
-detection with YOLO. NIGHTGLASS is the SAR complement to active Portuguese optical work, and the
+detection with YOLO. NIGHTGLASS is the SAR complement to active regional optical work, and the
 contrast is the point: optical fails at night and under cloud, which is the entire reason SAR
 exists for this mission.
 

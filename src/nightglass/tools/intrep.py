@@ -71,16 +71,6 @@ PRECISION_CAVEAT = (
     "duplicated. Counts of matched pairs are defensible; a dark-vessel rate is not."
 )
 
-PRECISION_CAVEAT_PT = (
-    "A precisão do detetor não está validada. Na AOI de validação dinamarquesa, "
-    "40% das deteções não têm correspondência AIS contra uma taxa de base "
-    "publicada de ~5%. O excesso é ruído costeiro e falsos alarmes isolados, não "
-    "embarcações escuras: uma varredura de buffer de linha de costa concentra-o "
-    "junto à costa, e depois de fundidas as deteções duplicadas do mesmo casco a "
-    "fração sem correspondência sobe em vez de descer, porque eram as deteções "
-    "correspondidas que estavam duplicadas. Contagens de pares correspondidos "
-    "são defensáveis; uma taxa de embarcações escuras não é."
-)
 
 DARK_IS_A_LEAD = (
     "A detection with no AIS correspondence is a lead, not a conclusion. "
@@ -89,13 +79,6 @@ DARK_IS_A_LEAD = (
     "one. The system surfaces candidates; the analyst adjudicates."
 )
 
-DARK_IS_A_LEAD_PT = (
-    "Uma deteção sem correspondência AIS é uma pista, não uma conclusão. "
-    "Lacunas de revisita do satélite, limites da cobertura terrestre, avaria do "
-    "transponder, transponders classe B de baixa potência e embarcações não "
-    "obrigadas a transportar AIS produzem todas o mesmo resultado. O sistema "
-    "apresenta candidatos; o analista adjudica."
-)
 
 
 @dataclass(frozen=True)
@@ -106,31 +89,18 @@ class RateVerdict:
     reasons: list[str] = field(default_factory=list)
 
 
-# Each reason is a complete sentence, capitalised and terminated. They are
-# joined into a caveat and also surfaced individually to the local model, and a
-# fragment that reads fine in a list runs into its neighbour once joined —
-# "…in this report. no detections were matched A precisão…".
-_NO_MATCHES = {
-    "en": "No detections were matched against AIS in this correlation.",
-    "pt": "Nenhuma deteção foi correspondida com AIS nesta correlação.",
-}
-_NOT_GROUND_TRUTH = {
-    "en": (
-        "The AIS feed ({sources}) is not ground truth, so the denominator is "
-        "incomplete and a proportion computed from it would report feed "
-        "sparsity as vessel behaviour."
-    ),
-    "pt": (
-        "A fonte AIS ({sources}) não é ground truth, pelo que o denominador "
-        "está incompleto e uma proporção calculada a partir dele reportaria a "
-        "escassez da fonte como comportamento das embarcações."
-    ),
-}
+# Complete sentences, capitalised and terminated. They are joined into a caveat
+# and also surfaced individually to the local model, and a fragment that reads
+# fine on its own runs into its neighbour once joined.
+_NO_MATCHES = "No detections were matched against AIS in this correlation."
+_NOT_GROUND_TRUTH = (
+    "The AIS feed ({sources}) is not ground truth, so the denominator is "
+    "incomplete and a proportion computed from it would report feed sparsity "
+    "as vessel behaviour."
+)
 
 
-def rate_verdict(
-    correlation: CorrelationResult, *, language: str = "en"
-) -> RateVerdict:
+def rate_verdict(correlation: CorrelationResult) -> RateVerdict:
     """Both sides of the fraction, checked independently.
 
     Returns `quotable=True` only if the AIS feed is ground truth *and* the
@@ -140,49 +110,47 @@ def rate_verdict(
     Danish AIS *is* ground truth, `CorrelationResult.rate_is_quotable` *is* true,
     and the rate is still not quotable, for the other reason.
     """
-    lang = "pt" if str(language).lower().startswith("pt") else "en"
     reasons: list[str] = []
     if not correlation.matches:
-        reasons.append(_NO_MATCHES[lang])
+        reasons.append(_NO_MATCHES)
     elif not correlation.rate_is_quotable:
         sources = sorted({m.ais_source or "unknown" for m in correlation.matches})
-        reasons.append(_NOT_GROUND_TRUTH[lang].format(sources=", ".join(sources)))
+        reasons.append(_NOT_GROUND_TRUTH.format(sources=", ".join(sources)))
     if not DETECTOR_PRECISION_VALIDATED:
-        reasons.append(PRECISION_CAVEAT_PT if lang == "pt" else PRECISION_CAVEAT)
+        reasons.append(PRECISION_CAVEAT)
     return RateVerdict(quotable=not reasons, reasons=reasons)
 
 
 # -- the check after the fact -------------------------------------------------
 
-# A proportion, in either demo language. `rate`/`taxa` are included as words
-# because "a dark-vessel rate of one in four" states a proportion without ever
-# printing a percent sign.
+# A proportion. `rate` is included as a word because "a dark-vessel rate of one
+# in four" states one without ever printing a percent sign.
 _PROPORTION = re.compile(
     r"\d+(?:[.,]\d+)?\s*%"
-    r"|\bper\s?cent\b|\bpercent\w*|\bpor\s?cento\b"
-    r"|\brates?\b|\btaxas?\b"
-    r"|\bfractions?\b|\bfra[cç][çc]?[ãa]?o\b"
-    r"|\bproportions?\b|\bpropor[çc][ãa]o\b"
-    r"|\bone\s+in\s+\w+\b|\bum\s+em\s+cada\b",
+    r"|\bper\s?cent\b|\bpercent\w*"
+    r"|\brates?\b"
+    r"|\bfractions?\b"
+    r"|\bproportions?\b"
+    r"|\bone\s+in\s+\w+\b",
     re.IGNORECASE,
 )
 
-# Darkness, in either demo language — and its complement, because "75% of
-# detections matched" states the same number as "25% were dark" and would
-# otherwise walk straight through a guard aimed only at the word "dark".
+# Darkness — and its complement, because "75% of detections matched" states the
+# same number as "25% were dark" and would otherwise walk straight through a
+# guard aimed only at the word "dark".
 #
-# `correspondência` is matched on its own rather than only after `não`: the
-# phrasing that got through a first draft of this was "25% das deteções não
-# **têm** correspondência AIS", where the negation and the noun are two words
-# apart. Matching the noun alone is safe because the proportion token is what
-# separates a rate from a count — "15 deteções não têm correspondência AIS" has
-# no proportion in it and survives.
+# `correspondence` is matched on its own rather than only after a negation: an
+# early draft required the two to be adjacent and let "25% of detections do not
+# **have** correspondence" through, where the negation and the noun are two
+# words apart. Matching the noun alone is safe, because the proportion token is
+# what separates a rate from a count — "15 detections have no AIS
+# correspondence" carries no proportion and survives.
 _DARKNESS = re.compile(
-    r"\bdark\b|\bescur\w*"
+    r"\bdark\b"
     r"|\bunmatched\b|\bnot\s+matched\b"
     r"|\bmatched\s+detections?\b|\bdetections?\s+(?:\w+\s+){0,2}matched\b"
-    r"|\bcorrespond[êe]nci\w*|\bcorrespondid\w*"
-    r"|\b(?:no|without)\s+AIS\b|\bsem\s+AIS\b",
+    r"|\bcorrespond\w*"
+    r"|\b(?:no|without)\s+AIS\b",
     re.IGNORECASE,
 )
 
@@ -222,139 +190,69 @@ def scrub_rate_claims(claims: list[Claim]) -> tuple[list[Claim], list[Claim]]:
 # -- the report ---------------------------------------------------------------
 
 _T = {
-    "en": {
-        "title": "INTREP — {aoi} — {date}",
-        "window": (
-            "The area of interest {aoi} was searched between {start} and {end} UTC; "
-            "the catalogue returned {n_scenes} Sentinel-1 granule(s)."
-        ),
-        "scene": (
-            "Scene {scene} was acquired at {acq} UTC in {mode} mode, "
-            "polarisations {pols}, and is the granule this report is drawn from."
-        ),
-        "detections": (
-            "The onboard CFAR detector found {n} candidate vessel(s) within the "
-            "area of interest in that scene; the smallest measures {min_len:.0f} m."
-        ),
-        "matched": (
-            "{n} of those detections correspond to a vessel reporting AIS, after "
-            "interpolating each vessel's position onto the acquisition instant and "
-            "correcting for SAR azimuth displacement; median separation {median:.0f} m."
-        ),
-        "dark": (
-            "{n} detection(s) have no AIS correspondence in {source} within "
-            "{radius:.0f} m and the search window. Each is a lead for adjudication."
-        ),
-        "none": "No detection in this scene was left without an AIS correspondence.",
-        "lead": (
-            "Detection {det} at {lat:.5f} N, {lon:.5f} E, extent {length}, has no "
-            "AIS correspondence in {source} and is put forward for adjudication."
-        ),
-        "truncated": (
-            "{shown} of {total} unmatched detections are listed individually above; "
-            "the remainder are in the correlation result."
-        ),
-        "no_rate": "No proportion of unmatched detections is stated in this report. ",
-        "weak_feed": (
-            "At least one match came from a feed that is not ground truth, so "
-            "absence of a match in this report is weaker evidence than a match."
-        ),
-        "skipped": (
-            "{n} further scene(s) in the search window were not correlated: "
-            "{ids}. Correlation is bounded to one scene per call; this report "
-            "covers only the scene named above."
-        ),
-        "scrubbed": (
-            "{n} generated claim(s) were removed before drafting because they "
-            "stated a rate of unmatched detections."
-        ),
-        "no_narrative": (
-            "The document assessment section was omitted: {why}. The findings "
-            "above are unaffected — they are read from the database, not generated."
-        ),
-        "no_docs": (
-            "No supporting documents were retrieved, so this report contains "
-            "findings only and no doctrinal assessment."
-        ),
-        "no_ais": (
-            "NO AIS was available for this acquisition window, so none of the "
-            "{n} detection(s) above has been assessed against AIS. They are "
-            "detections, not dark detections, and nothing here says whether any "
-            "vessel was transmitting. This report carries no correlation finding."
-        ),
-        "draft": (
-            "DRAFT — NOT RELEASABLE until reviewed and released at the human gate."
-        ),
-    },
-    "pt": {
-        "title": "INTREP — {aoi} — {date}",
-        "window": (
-            "A área de interesse {aoi} foi pesquisada entre {start} e {end} UTC; "
-            "o catálogo devolveu {n_scenes} granulo(s) Sentinel-1."
-        ),
-        "scene": (
-            "A cena {scene} foi adquirida às {acq} UTC em modo {mode}, "
-            "polarizações {pols}, e é o granulo de onde este relatório é extraído."
-        ),
-        "detections": (
-            "O detetor CFAR próprio encontrou {n} embarcação(ões) candidata(s) "
-            "dentro da área de interesse nessa cena; a menor mede {min_len:.0f} m."
-        ),
-        "matched": (
-            "{n} dessas deteções correspondem a uma embarcação que reporta AIS, após "
-            "interpolar a posição de cada embarcação para o instante de aquisição e "
-            "corrigir o deslocamento em azimute do SAR; separação mediana {median:.0f} m."
-        ),
-        "dark": (
-            "{n} deteção(ões) não têm correspondência AIS em {source} dentro de "
-            "{radius:.0f} m e da janela de pesquisa. Cada uma é uma pista a adjudicar."
-        ),
-        "none": "Nenhuma deteção nesta cena ficou sem correspondência AIS.",
-        "lead": (
-            "A deteção {det} em {lat:.5f} N, {lon:.5f} E, extensão {length}, não tem "
-            "correspondência AIS em {source} e é apresentada para adjudicação."
-        ),
-        "truncated": (
-            "{shown} de {total} deteções sem correspondência estão listadas "
-            "individualmente acima; as restantes estão no resultado da correlação."
-        ),
-        "no_rate": (
-            "Nenhuma proporção de deteções sem correspondência é indicada neste "
-            "relatório. "
-        ),
-        "weak_feed": (
-            "Pelo menos uma correspondência veio de uma fonte que não é ground "
-            "truth, pelo que a ausência de correspondência neste relatório é "
-            "evidência mais fraca do que uma correspondência."
-        ),
-        "skipped": (
-            "Mais {n} cena(s) na janela de pesquisa não foram correlacionadas: "
-            "{ids}. A correlação está limitada a uma cena por chamada; este "
-            "relatório cobre apenas a cena indicada acima."
-        ),
-        "scrubbed": (
-            "{n} afirmação(ões) geradas foram removidas antes da redação por "
-            "indicarem uma taxa de deteções sem correspondência."
-        ),
-        "no_narrative": (
-            "A secção de apreciação documental foi omitida: {why}. Os achados "
-            "acima não são afetados — são lidos da base de dados, não gerados."
-        ),
-        "no_docs": (
-            "Não foram recuperados documentos de apoio, pelo que este relatório "
-            "contém apenas achados e nenhuma apreciação doutrinária."
-        ),
-        "no_ais": (
-            "NÃO havia AIS disponível para esta janela de aquisição, pelo que "
-            "nenhuma das {n} deteção(ões) acima foi avaliada contra AIS. São "
-            "deteções, não deteções escuras, e nada aqui indica se alguma "
-            "embarcação estava a transmitir. Este relatório não contém qualquer "
-            "achado de correlação."
-        ),
-        "draft": (
-            "RASCUNHO — NÃO DIVULGÁVEL até revisão e libertação no controlo humano."
-        ),
-    },
+
+    "title": "INTREP — {aoi} — {date}",
+    "window": (
+        "The area of interest {aoi} was searched between {start} and {end} UTC; "
+        "the catalogue returned {n_scenes} Sentinel-1 granule(s)."
+    ),
+    "scene": (
+        "Scene {scene} was acquired at {acq} UTC in {mode} mode, "
+        "polarisations {pols}, and is the granule this report is drawn from."
+    ),
+    "detections": (
+        "The onboard CFAR detector found {n} candidate vessel(s) within the "
+        "area of interest in that scene; the smallest measures {min_len:.0f} m."
+    ),
+    "matched": (
+        "{n} of those detections correspond to a vessel reporting AIS, after "
+        "interpolating each vessel's position onto the acquisition instant and "
+        "correcting for SAR azimuth displacement; median separation {median:.0f} m."
+    ),
+    "dark": (
+        "{n} detection(s) have no AIS correspondence in {source} within "
+        "{radius:.0f} m and the search window. Each is a lead for adjudication."
+    ),
+    "none": "No detection in this scene was left without an AIS correspondence.",
+    "lead": (
+        "Detection {det} at {lat:.5f} N, {lon:.5f} E, extent {length}, has no "
+        "AIS correspondence in {source} and is put forward for adjudication."
+    ),
+    "truncated": (
+        "{shown} of {total} unmatched detections are listed individually above; "
+        "the remainder are in the correlation result."
+    ),
+    "no_rate": "No proportion of unmatched detections is stated in this report. ",
+    "weak_feed": (
+        "At least one match came from a feed that is not ground truth, so "
+        "absence of a match in this report is weaker evidence than a match."
+    ),
+    "skipped": (
+        "{n} further scene(s) in the search window were not correlated: "
+        "{ids}. Correlation is bounded to one scene per call; this report "
+        "covers only the scene named above."
+    ),
+    "scrubbed": (
+        "{n} generated claim(s) were removed before drafting because they "
+        "stated a rate of unmatched detections."
+    ),
+    "no_narrative": (
+        "The document assessment section was omitted: {why}. The findings "
+        "above are unaffected — they are read from the database, not generated."
+    ),
+    "no_docs": (
+        "No supporting documents were retrieved, so this report contains "
+        "findings only and no doctrinal assessment."
+    ),
+    "no_ais": (
+        "NO AIS was available for this acquisition window, so none of the "
+        "{n} detection(s) above has been assessed against AIS. They are "
+        "detections, not dark detections, and nothing here says whether any "
+        "vessel was transmitting. This report carries no correlation finding."
+    ),
+    "draft": (
+        "DRAFT — NOT RELEASABLE until reviewed and released at the human gate."
+    ),
 }
 
 _MAX_LEADS = 10
@@ -376,7 +274,7 @@ lack AIS. This deployment's detector precision is not validated, so such a \
 number would be unsupportable. Counts are fine; proportions are not.
 4. Never describe a vessel as illegal, evading, suspicious or non-compliant. A \
 detection without an AIS match is a lead for an analyst, not a finding.
-5. Write in the SAME LANGUAGE as the report language given below.
+5. Write in English.
 6. Two to four claims. Each one self-contained, no numbering, no chunk id in \
 the text. Say what the CONTEXT establishes about how such findings should be \
 interpreted or handled.
@@ -406,7 +304,6 @@ def draft_intrep(
     correlation: CorrelationResult,
     context_chunks: list[Chunk] | None = None,
     *,
-    language: str = "en",
     narrative: bool = True,
     ollama_host: str | None = None,
     chat_model: str | None = None,
@@ -428,13 +325,12 @@ def draft_intrep(
     :func:`scrub_rate_claims`.
     """
     chunks = list(context_chunks or [])
-    lang = "pt" if str(language).lower().startswith("pt") else "en"
-    t = _T[lang]
+    t = _T
 
     from nightglass.tools.base import now
 
     generated_at = now()
-    verdict = rate_verdict(correlation, language=lang)
+    verdict = rate_verdict(correlation)
 
     claims = _factual_claims(correlation, t)
     dropped_rates: list[Claim] = []
@@ -445,7 +341,6 @@ def draft_intrep(
             generated = _assessment_claims(
                 correlation,
                 chunks,
-                lang=lang,
                 ollama_host=ollama_host or settings.ollama_host,
                 chat_model=chat_model or settings.ollama_chat_model,
                 timeout=timeout,
@@ -471,7 +366,6 @@ def draft_intrep(
             correlation,
             verdict,
             t,
-            lang,
             dropped_rates=dropped_rates,
             narrative_failed=narrative_failed,
             chunks=chunks,
@@ -588,7 +482,6 @@ def _caveats(
     c: CorrelationResult,
     verdict: RateVerdict,
     t: dict[str, str],
-    lang: str,
     *,
     dropped_rates: list[Claim],
     narrative_failed: str | None,
@@ -605,7 +498,7 @@ def _caveats(
     the words "a dark-vessel rate" in order to say that this report does not
     quote one. Running the guard over its own explanation would delete it.
     """
-    out = [DARK_IS_A_LEAD_PT if lang == "pt" else DARK_IS_A_LEAD]
+    out = [DARK_IS_A_LEAD]
     # First, because it subsumes everything below it: if nothing was assessed,
     # the reader needs to know that before reading a caveat about rates. An
     # empty `matches` list beside a non-empty `detections` list otherwise reads
@@ -638,7 +531,6 @@ def _assessment_claims(
     c: CorrelationResult,
     chunks: list[Chunk],
     *,
-    lang: str,
     ollama_host: str,
     chat_model: str,
     timeout: float,
@@ -660,7 +552,7 @@ def _assessment_claims(
             {
                 "role": "user",
                 "content": (
-                    f"REPORT LANGUAGE: {'Portuguese' if lang == 'pt' else 'English'}\n\n"
+                    "REPORT LANGUAGE: English\n\n"
                     f"FINDINGS (already stated in the report; context only):\n{findings}\n\n"
                     f"CONTEXT:\n\n{build_context(chunks)}\n\n"
                     "Write the assessment claims."

@@ -4,6 +4,79 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
+## Post-M5 — English throughout
+
+### 48. Removing a second language removed a demonstration, and the honest move was to say so
+
+The system now works only in English: the six §5 tools, the agent graph, the INTREP templates,
+the proof scripts and the six synthetic memos that were drafted in another language. `bge-m3`
+and the multilingual corpus metadata stay, because a national deployment will still have a
+corpus and queries that do not share a language — but **nothing shipped exercises that any
+more**, and the README now says so instead of carrying a cross-lingual retrieval claim it can no
+longer support. The measured separation that justified the model choice (0.842 against a
+translated equivalent, 0.283 against unrelated text) is kept here as the reason, marked as no
+longer reproducible from this corpus.
+
+Three things worth knowing about the conversion:
+
+**Finding 11 survived, and got sharper.** Asked *"what is a dark vessel?"* ungrounded, qwen2.5
+now states the term "isn't a standard term in common usage" and offers literature, philosophy,
+art symbolism and *retrocomputing*. Not one reading is maritime. The original run in another
+language answered "painted in dark colours" — a different wrong answer to the same effect. The
+finding is about the absence of a prior and never depended on the language it was found in, so
+it was re-verified rather than translated.
+
+**The refusal string was bilingual and nobody noticed.** `REFUSAL_TEXT` read
+`"Not supported by available sources. / <the same in another language>"` and survived every
+sweep of the templates, because it lives in `rag/answer.py` with the M2 generation code rather
+than with the M4 report templates. Grep for the *content*, not for the feature you think you are
+removing.
+
+**Ingest is idempotent by chunk id, which is the wrong property here.** Renaming six documents
+created six new sets of points and left the old ones in Qdrant, so `make ingest` reported a
+healthy corpus while the index still answered in the old language. `make ingest RECREATE=1` is
+the fix, and the idempotence that makes ordinary re-ingestion safe is exactly what hides a
+rename.
+
+### 49. ⭐ The English rewording made the model prefer `correlate`, and the recovery is the evidence
+
+Rewording the chaining question in English dropped `make tool-proof` below §M4's bar twice: the
+model answered with `correlate` alone (1 tool), then `correlate` + `doc_search` (2). That is not
+a regression — `correlate` runs all three spatial steps internally and is the better choice for
+a question phrased as one request. The bar counts *distinct tools*, and building a good
+orchestration tool is in tension with it.
+
+Asking the question the way an analyst actually would — the scene first, then the detections in
+it — restores the chain. And the run that restored it is worth more than the clean one it
+replaced:
+
+```
+1. stac_search(...)                                    -> count=2
+2. detect_vessels({"scene_id": "S1A_IW_SLC__…_NWJ.csv"})
+   ERROR  no scene '…' in the catalogue. Run `make scenes` …
+3. ais_match({"detections": ["det-20260717-0523-…-0", …]})
+   ERROR  10 detection id(s) are not in detect.detections … ids are assigned by
+          the detector run and are not guessable.
+4. stac_search(...)   REPEAT — same tool, same arguments, told to advance
+5. detect_vessels({"scene_id": "S1D_…_BC13"})           -> count=35
+6. ais_match({"detections": [35 real ids]})             -> matched 21, unmatched 14
+```
+
+The model **invented a scene id and ten detection ids**, and every one was refused rather than
+absorbed. Then it re-issued an identical `stac_search` and the repeat detector caught that too.
+Three guards fired in one run, the model recovered, and the final numbers are the hand-checked
+ones. A system that accepts a plausible-looking invented id is a system whose provenance chain
+means nothing; this is what it looks like when it does not.
+
+### Deliberate divergence from EXECUTION_SPEC
+
+§M5's original done-when named a specific language, §6's demo query was written in it, and §2's
+`bge-m3` row justified the model by it. All three have been reworded. The spec is the contract
+and this was a decision taken against it, so it is recorded here rather than left for someone to
+find as a discrepancy.
+
+---
+
 ## Post-M5 — the merge step, and the number it made worse
 
 ### 46. ⭐⭐⭐ 45 matched detections were 18 ships, and fixing it moved 25% dark to 40%
@@ -79,7 +152,7 @@ invisible in everything I was checking.
 
 ## M5 — done 2026-08-04. A graph that genuinely stops, and an answer nobody generated.
 
-`make agent-proof` is the milestone: a Portuguese question drafts an INTREP, the graph halts at
+`make agent-proof` is the milestone: an analyst question drafts an INTREP, the graph halts at
 `HUMAN_GATE`, the **container exits**, and a different container resumes it from Postgres.
 
 ### 41. ⭐ "Inspectable persisted state" is true, and not in the way the docstring first claimed
@@ -112,8 +185,8 @@ M4 built `scrub_rate_claims` as a backstop behind two weaker layers and noted it
 one that was a check rather than a request. On M5's first end-to-end run over Denmark the draft
 came back with a caveat nobody wrote by hand:
 
-> *1 afirmação(ões) geradas foram removidas antes da redação por indicarem uma taxa de deteções
-> sem correspondência.*
+> *1 generated claim(s) were removed before drafting because they stated a rate of unmatched
+> detections.*
 
 The model, asked for a documentary assessment, wrote a rate into it. The guard removed the claim
 and recorded that it had. Neither the prompt layer nor the schema layer stopped it; the check
@@ -146,8 +219,8 @@ Worth recording as a whole, because it is the shape of the milestone rather than
 | `HUMAN_GATE` | human | the only path to `releasable=True` |
 | `release` | nobody | prose assembled from the report's own fields |
 
-The M4 conflation bug — every per-scene count right, and *"das 60 detecções … 15 não"* across two
-scenes — is structurally unreachable in the released answer now: nothing generates it.
+The M4 conflation bug — every per-scene count right, and "of the 60 detections … 15 were not"
+across two scenes — is structurally unreachable in the released answer now: nothing generates it.
 
 ### 45. The loop-breaker's two-strike shape survived contact with a second use
 
@@ -191,14 +264,14 @@ strange demo. Three options, in the order they are worth trying:
 
 1. **Record Portugal as detection + cross-check.** `make fetch-gfw && make gfw-compare` gives a
    detection-for-detection comparison against a published layer over the identical granule, plus
-   finding 38's fragmentation result. Add the Portuguese RAG answer and the INTREP with its
-   refusal. This is the honest Portuguese demo and it needs nothing new built.
+   finding 38's fragmentation result. Add the grounded RAG answer and the INTREP with its
+   refusal. This is the honest Lisbon-AOI demo and it needs nothing new built.
 2. **Record Denmark for the correlation half**, Portugal for the language and the cross-check.
    Two AOIs on screen is §3.1's argument made visible rather than asserted.
-3. **Catch a live Portuguese overpass** with an aisstream recorder running. Real, but it is a
+3. **Catch a live Lisbon-AOI overpass** with an aisstream recorder running. Real, but it is a
    multi-day dependency and the feed still cannot support a rate.
 
-Option 1 or 2. Do not let the recording imply a Portuguese dark-vessel finding.
+Option 1 or 2. Do not let the recording imply a dark-vessel finding over the Lisbon AOI.
 
 ### Everything else worth knowing is in the M5 handoff below
 
@@ -248,8 +321,8 @@ Two details worth keeping:
 
 **⚠️ Build the final answer from the `CorrelationResult`, not from the model's recollection.**
 This is the single most useful thing to carry over. In the last proof run the model got every
-per-scene count right, listed 30 real detection ids, and *still* wrote "das 60 detecções … 15
-não" — conflating two scenes while summarising. It is not a prompting problem. `draft_intrep`
+per-scene count right, listed 30 real detection ids, and *still* summarised them as "of the 60
+detections … 15 were not" — conflating two scenes. It is not a prompting problem. `draft_intrep`
 already does it correctly because its findings are templated from the correlation object; the
 graph's `release` node should assemble prose the same way and use the model only for the parts
 that are genuinely generative.
@@ -311,7 +384,7 @@ fresh machine does not mean the file is unused.
 **The MCP surface serves whatever AOI the container has**, which is `lisbon` from `.env` — that
 is §3.1 working as designed, one deployment one AOI. To reach the Danish validation AOI over
 MCP, add `-e NIGHTGLASS_AOI=kattegat` to the `docker exec` args. `make tool-proof` does exactly
-that, which is why its numbers are Danish and `.mcp.json`'s are Portuguese.
+that, which is why its numbers are Danish and `.mcp.json`'s are from the Lisbon AOI.
 
 ### ⚠️ The demo AOI has no AIS, and that is now M5/M6's critical path
 
@@ -326,7 +399,7 @@ Three ways out, in the order they are worth trying:
 1. **Load the aisstream recording**, if the recorder has been running. It is a thinned feed and
    cannot support a rate, which is already stated as a limitation — but it makes the matcher
    *visible* over Portugal, which is what the demo needs.
-2. **Use GFW as the reference layer** for the Portuguese scene. Verified retrievable during M3
+2. **Use GFW as the reference layer** for the Lisbon scene. Verified retrievable during M3
    (finding in the M3 handoff, still accurate), and the granule GFW computed over is the one on
    disk, so it is a detection-for-detection comparison. This is already scheduled for M6.
 3. **Record the demo over Denmark** and accept the divergence from §6. Weakest option: it throws
@@ -342,8 +415,8 @@ not change, but what the demo *shows* does.
 2. **The GFW comparison** — verified during M3, unwritten, and scheduled for M6. `correlate` now
    exists, which was the reason for deferring it.
 3. **A genuinely cold `make pull-models`** — unchanged from M2.
-4. **Portuguese AOI still undecided** between Lisbon and Leixões. Note that **no AIS is loaded for
-   Lisbon**, so a Portuguese `correlate` today returns every detection unmatched against a feed of
+4. **Demo AOI still undecided** between Lisbon and Leixões. Note that **no AIS is loaded for
+   Lisbon**, so a `correlate` there today returns every detection unmatched against a feed of
    "none loaded" — which the guard handles correctly but which is not a demo.
 5. **Citation entailment** — unchanged from M2.
 6. **`scrub_rate_claims` is a regex over two languages.** It catches the shapes this model
@@ -430,10 +503,10 @@ the precision side. Worth a caveat string on the INTREP.
   endpoints should copy — `asyncio.to_thread` around the blocking client, a 503 with a
   remediation hint, `response_model` from `schemas.py`.
 - So M4 is `correlate` + `draft_intrep` + the MCP/FastAPI surface. Four of the six already work.
-- **Six granules are catalogued** (`make scenes`), four Portuguese and two Danish.
+- **Six granules are catalogued** (`make scenes`), four over the Lisbon AOI and two Danish.
 
 **The detector generalises — do not re-tune it.** Every threshold was set on one Danish scene,
-so this was the real risk. Run unchanged over a Portuguese granule (S1A, different sea state and
+so this was the real risk. Run unchanged over a Lisbon-AOI granule (S1A, different sea state and
 geometry) it gives 133 detections with CFAR still binding and chips that are plainly vessels.
 Finding 31. If M4 sees odd detector behaviour, suspect the wiring, not the thresholds.
 
@@ -464,7 +537,7 @@ points** as MVT, filterable with `filters[0]=matched='false'`. Verified over Lis
 242/196, 2026-06-13: 13 detections = 10 matched + 3 unmatched.
 
 The decisive detail: each feature's `id` is `<granule_id>;<lon>;<lat>`, and that granule
-(`S1A_..._20260613T064316_..._F72E`) is **already on disk**. So the Portuguese cross-check is a
+(`S1A_..._20260613T064316_..._F72E`) is **already on disk**. So the Lisbon cross-check is a
 detection-for-detection comparison against a published layer computed over the *identical*
 granule — not the degraded "GFW saw N here, I saw M" fallback the handoff feared.
 
@@ -494,7 +567,7 @@ Two gotchas: `curl` glob-expands the `[0]` in `datasets[0]=` and silently sends 
 4. **FastMCP 3.4.5 still accepts `transport="sse"`** — revisit at M4 when Claude Desktop attaches.
    The stdio path is the one that matters, because it crosses the boundary without opening it:
    `docker compose exec -T mcp nightglass-mcp stdio`.
-5. **Portuguese AOI still undecided** between Lisbon and Leixões; the coastline fetch already
+5. **Demo AOI still undecided** between Lisbon and Leixões; the coastline fetch already
    clipped both, so either works with no further provisioning. The Lisbon scenes are the ones
    with detections loaded and the ones GFW covers.
 6. **Citation entailment** — unchanged from M2.
@@ -601,7 +674,8 @@ because some publishers grant no reuse licence.
 Both things the old handoff said not to re-litigate held up:
 - **bge-m3 was the right one-way call.** Cross-lingual retrieval works in *both* directions on
   the real corpus, not just the sentence-pair test: an English query about AIS deduplication
-  ranks a Portuguese INTSUM first at **0.714**, above the English IMO material at 0.616.
+  ranked a non-English INTSUM first at **0.714**, above the English IMO material at 0.616 (the
+  corpus has since been rewritten in English, so this no longer reproduces — see README).
 - **Classification propagation is implemented structurally**, not as a prompt instruction. The
   marking on an answer is computed from the chunks it actually *cited* — `UNCLASSIFIED //
   SYNTHETIC` when doctrine memos are cited, plain `UNCLASSIFIED` when only IMO/EU sources are.
@@ -622,7 +696,7 @@ Both things the old handoff said not to re-litigate held up:
 
 1. **GFW per-detection `matched` flags** — the public API returned *gridded aggregate counts*,
    not per-detection records. §3.1 wants unmatched detections specifically. If those flags are
-   only in the paper's BigQuery tables, the Portuguese reference layer degrades to "GFW saw N
+   only in the paper's BigQuery tables, the Lisbon reference layer degrades to "GFW saw N
    here, my detector saw M" — still a real cross-check, weaker than the spec assumes.
    **Resolve early in M3**, not late.
 2. **A genuinely cold `make pull-models`** — it has only ever run against a volume that already
@@ -632,7 +706,7 @@ Both things the old handoff said not to re-litigate held up:
    failures, and its cache is per-file so a partial run resumes.
 3. **FastMCP 3.4.5 still accepts `transport="sse"`**, but `http`/`streamable-http` is the modern
    path. Revisit at M4 when Claude Desktop attaches for real.
-4. **Portuguese AOI still deliberately undecided** between Lisbon and Leixões — the recorder
+4. **Demo AOI still deliberately undecided** between Lisbon and Leixões — the recorder
    covers both. Decide after the scenes land, not before. INTSUM 2026/071 in the corpus lays out
    the trade (Leixões has three overlapping S1 paths against Lisbon's two, so ~50% more
    acquisitions; Lisbon has the richer estuary geometry and the EMSA narrative).
@@ -680,10 +754,10 @@ between RAG embed and chat calls, showing up as latency rather than an error.
 Two systemd traps hit while doing it: the `[Service]` header is mandatory, and systemd does
 **not** accept trailing inline comments — only whole lines starting with `#`.
 
-**M4 tool-chaining already passes** (dry-run, stub tool results, §6's Portuguese query):
-`stac_search → detect_vessels → ais_match →` Portuguese answer. Three distinct tools chained
-unprompted; bbox parsed from prose; *"últimas 72 horas"* resolved against a stated today-date.
-It even hedged unprompted — *"pode não ser declarada"*, which is §7's framing for free.
+**M4 tool-chaining already passes** (dry-run, stub tool results, §6's demo query):
+`stac_search → detect_vessels → ais_match →` final answer. Three distinct tools chained
+unprompted; bbox parsed from prose; *"the last 72 hours"* resolved against a stated today-date.
+It even hedged unprompted — *"may be undeclared"*, which is §7's framing for free.
 
 ⚠️ **But build a loop-breaker into M5.** When a tool result contradicted the request (a 17 Jul
 scene fed back after it asked for 31 Jul–3 Aug), it re-called `stac_search` **four times** with
@@ -691,7 +765,7 @@ tweaked dates instead of advancing. Defensible reasoning, but unbounded it burns
 window. Needs max-iterations plus a same-tool-same-args repeat detector.
 
 **bge-m3 cross-lingual retrieval verified** — PT↔EN same meaning **0.842**, PT↔unrelated PT
-0.283. It keys on meaning, not language, so the Portuguese demo query will retrieve an English
+0.283. It keys on meaning, not language, so a cross-language query will retrieve an English
 corpus. This choice is one-way: switching embedders means re-embedding everything.
 
 ### Sentinel-1 coverage over Portugal — VERIFIED, risk retired
@@ -870,7 +944,7 @@ the guide's §7 asks for.
 ## aisstream.io — the "no free AIS for Portugal" claim needs amending
 
 `PRE_DEV_GUIDE.md` and `EXECUTION_SPEC.md` §3.1 both assert flatly:
-**"No free point-level AIS exists for Portuguese waters."** That is too strong.
+**"No free point-level AIS exists for Iberian waters."** That is too strong.
 
 [aisstream.io](https://aisstream.io) gives free real-time global AIS over WebSocket, API key
 only, bbox subscription. Pulled live from the Tagus estuary on 2026-08-03:
@@ -880,9 +954,9 @@ only, bbox subscription. Pulled live from the Tagus estuary on 2026-08-03:
  "sog": 0, "cog": 341, "utc": "2026-08-03 15:12:39 UTC"}
 ```
 
-MMSI `263…` is a Portuguese flag. Free, point-level, Portuguese waters.
+MMSI `263…` is a national flag prefix. Free, point-level, Iberian waters.
 
-**But it does not rescue the Portuguese correlation story, for two measured reasons.**
+**But it does not rescue the Lisbon correlation story, for two measured reasons.**
 
 ### 1. Real-time only — no archive
 
@@ -959,7 +1033,7 @@ broken" failure mode.
   correlated Portugal" (unsupportable). It also shows the claim was tested rather than assumed.
 
 **Amend both documents** to: *no free **historical, complete** point-level AIS exists for
-Portuguese waters; a free real-time feed exists but is too sparse for dark-vessel rate
+Iberian waters; a free real-time feed exists but is too sparse for dark-vessel rate
 estimation.*
 
 ---
@@ -1013,7 +1087,7 @@ coverage from 2017-01-01. Queried via `4wings/report` over the Lisbon AOI:
 | 2026-06-01 → 06-30 | 302 ✅ |
 | 2026-07-25 → 08-02 | **0** ⚠️ outage still ongoing |
 
-So the Portuguese reference layer **exists for exactly the scenes we downloaded**, and the
+So the Lisbon reference layer **exists for exactly the scenes we downloaded**, and the
 3 Jul 2026 outage is confirmed unresolved as of today. The spec's instruction — use a
 historical date before July 2026 — is not caution, it is required.
 
@@ -1025,7 +1099,7 @@ FLAGANDGEARTYPE, MMSI`) or it 422s. Also `/v3/datasets` returns `total: 45535` w
 not per-detection records carrying `matched=true/false`. EXECUTION_SPEC §3.1 wants *unmatched*
 detections specifically. Whether per-detection matched flags are retrievable through the
 public API (vs only through the paper's BigQuery tables) is the open question. If they are
-not, the Portuguese "dark" layer degrades to "GFW saw N detections here, my detector saw M" —
+not, the Lisbon "dark" layer degrades to "GFW saw N detections here, my detector saw M" —
 still a real cross-check, but weaker than the spec assumes. **Resolve this early in M3.**
 
 ---
@@ -1045,8 +1119,8 @@ Pre-dev is complete. Everything below is state a new session cannot infer from t
 | `.env.example` | committed template; keep the two in sync (all keys must match) |
 | `.gitignore` | covers `.env`, `data/`, `*.zip`, `*.tif` |
 | `scripts/load-env.sh` | `source` it (don't execute). Loads `~/.config/eo-credentials.env` then `.env`. Provides `nightglass_env_status`. |
-| `data/sar_manifest.txt` | 4 pinned granules — ⚠️ its **Portuguese** entries are path 23, offshore, **superseded** |
-| `data/sar_manifest_pt_fix.txt` | the correct Portuguese scenes (path 125, over the approaches) |
+| `data/sar_manifest.txt` | 4 pinned granules — ⚠️ its **Lisbon-AOI** entries are path 23, offshore, **superseded** |
+| `data/sar_manifest_pt_fix.txt` | the correct Lisbon scenes (path 125, over the approaches) |
 
 **Credentials live outside the repo**, in `~/.config/eo-credentials.env` (0600):
 `GFW_TOKEN`, `AISSTREAM_API_KEY`, `CDS_API_KEY`, `EUMETSAT_*`. Earthdata stays in `~/.netrc`.
@@ -1216,21 +1290,25 @@ Models seeded from the host (9.5 GB, 8 blobs, both manifests), host ollama stopp
 $ docker compose exec api curl -m 5 https://example.com
 curl: (6) Could not resolve host: example.com          ← not a timeout. no route at all.
 $ chat completion against qwen2.5:14b, inside the enclave
-Radar de Abertura Sintética (SAR) é uma tecnologia que permite capturar imagens
-detalhadas da superfície da Terra usando ondas de rádio, funcionando bem de noite
-porque não depende da luz solar para operar.                              ← correct
+Synthetic Aperture Radar (SAR) is a radar technique that creates high-resolution
+images regardless of weather or lighting conditions by synthesizing a large
+antenna aperture, which allows it to operate both day and night.          ← correct
 ```
 
-### 11. ⭐ The model has NO prior for "embarcação escura" — this is the case FOR M2
+### 11. ⭐ The model has NO prior for "dark vessel" — this is the case FOR M2
 
-The first proof run asked, in Portuguese, *"o que é uma embarcação escura?"*. Ungrounded, with
-no retrieved context, qwen2.5:14b answered:
+Asked *"what is a dark vessel?"* with no retrieved context, qwen2.5:14b states outright that it
+"isn't a standard term in common usage or in specific fields" and offers four confident readings:
+literature and fiction, philosophy and metaphor, art and symbolism, and — memorably —
+retrocomputing, "a black case or enclosure for hardware components".
 
-> *"pode ser qualquer tipo de barco ou navio que seja **pintado em cores escuras** ou esteja
-> situada em um fundo que a faz parecer escura visualmente."*
+**Not one of them is maritime.** Fluent, confident, entirely domain-wrong, and it would read as
+authoritative to anyone who did not already know better.
 
-It read the intelligence term as a description of **paint colour**. Fluent, confident, entirely
-domain-wrong — and it would have read as authoritative to anyone who did not already know better.
+*(Re-verified 2026-08-04 after the corpus and the interface were converted to English. The
+original run asked the same question in another language and got the reading "painted in dark
+colours" — a different wrong answer to the same effect. The finding is about the absence of a
+prior, and it does not depend on the language it was found in.)*
 
 This is the single most useful thing to come out of M1, for three reasons:
 
@@ -1461,14 +1539,14 @@ the mistake stays confined to page edges. Both the property and its cost have te
 
 ### 17. ⭐ Finding 11's transcript does not reproduce — and the finding survives anyway
 
-M1 recorded qwen2.5:14b answering that an *embarcação escura* is a boat *"pintado em cores
-escuras"*, and called it M2's whole argument. Re-run at M2, four samples, three at the default
+M1 recorded qwen2.5:14b answering that a dark vessel is a boat "painted in dark
+colours", and called it M2's whole argument. Re-run at M2, four samples, three at the default
 temperature and one at 0:
 
-- *"não tem um significado específico ou comum na náutica"* — the term has no established
+- *"has no specific or common meaning in seafaring"* — the term has no established
   meaning (×2)
-- *"uma embarcação pintada de preto ou operando à noite sem luzes"* — offered as a guess
-- *"Descrição Visual: se refere à aparência física da embarcação"* — the paint reading, but
+- *"a vessel painted black or operating at night without lights"* — offered as a guess
+- *"Visual description: refers to the physical appearance of the vessel"* — the paint reading, but
   hedged as one interpretation among several
 
 The paint-colour answer is **one sample from a distribution**, not a reproducible behaviour, and
@@ -1763,7 +1841,7 @@ hulls.
 The lesson is the order: the hypothesis was cheap to state, cheaper to test against the
 product's own annotation, and testing it took less time than arguing about it would have.
 
-**One real effect it did surface:** almost every Portuguese chip shows heavy **azimuth smear** —
+**One real effect it did surface:** almost every Lisbon-AOI chip shows heavy **azimuth smear** —
 the vertical streak of a moving target — and the region-growing sizer picks the smear up, which
 is why lengths run large there (226 m, 270 m, 325 m). This is the same mechanism behind the weak
 length correlation measured in Denmark (r = 0.198), now visible rather than inferred. A wake- or
@@ -1852,18 +1930,18 @@ is worth asking. The guard read as working while being stuck off, and over Denma
 reporting the wrong reason. The flag describes the feed that was *searched*, not whether the
 search succeeded. Now derived from `ais.positions` for the acquisition window, with a test.
 
-**And one the scrubber caught on itself.** A first draft of the regex matched `não corresponde`
-but not `não **têm** correspondência` — negation and noun two words apart — so
-`25% das deteções não têm correspondência AIS` walked straight through. It also missed the
-complement: `75% das deteções têm correspondência` states the same number. Both are now cases in
+**And one the scrubber caught on itself.** A first draft of the regex required the negation and
+the noun to be adjacent, so `25% of detections do not **have** AIS correspondence` — two words
+apart — walked straight through. It also missed the complement: `75% of detections have AIS
+correspondence` states the same number. Both are now cases in
 `tests/test_tools.py`. The caveat explaining the guard has to use the words "dark-vessel rate" to
 say the report does not quote one, which is why caveats are assembled structurally and never
 scrubbed — running the guard over its own explanation would delete it.
 
 ### 34. ⭐ A ten-item sample shown next to the working set gets used as the working set
 
-The first real chain run passed §M4's bar — three distinct tools, Portuguese question,
-Portuguese answer, unprompted hedging — and produced a **wrong answer**. The model called
+The first real chain run passed §M4's bar — three distinct tools, unprompted hedging — and
+produced a **wrong answer**. The model called
 `ais_match` six times in batches of ten, then reported the last batch's counts as the scene's.
 
 The cause was mine, not the model's. `detect_vessels`' compacted result carried the full
@@ -1916,11 +1994,11 @@ call, with the numbers above in the tool description.
 Every `ais_match` result now states the tolerance it used, so two counts can never be compared
 without noticing they came from different rules.
 
-**After the fix**, from a Portuguese question with no scene id and no bbox in the prompt:
+**After the fix**, from a question with no scene id and no bbox in the prompt:
 `stac_search → detect_vessels → ais_match`, 60 detections, 45 matched, 15 dark, and the fifteen
 unmatched ids it listed are **identical to the database's**, in order, with nothing invented. It
-also hedged unprompted — *"leads para análise adicional … não podem ser consideradas como
-evidências conclusivas"* — and stated no rate.
+also hedged unprompted — *"leads for further analysis … cannot be considered conclusive
+evidence"* — and stated no rate.
 
 ### 36. ⭐ The loop-breaker fired on its first real outing, and the residue is M5's job
 
@@ -1934,7 +2012,7 @@ the second. Three iterations, not an exhausted context window.
 Two things worth carrying into M5. The guard should **not** kill the run on the first repeat —
 re-calling can be correct when a result genuinely fails to satisfy the request, so the first
 strike is information and the second is a stop. And the residue it cannot fix: the final answer
-opened *"das 60 detecções … 45 tiveram correspondência … e 15 não"* and then listed **30**
+opened *"of the 60 detections … 45 matched … and 15 did not"* and then listed **30**
 unmatched ids across both scenes. Every id was real and every per-scene count was right; the
 model conflated two scenes into one scene's framing while summarising.
 
@@ -1959,8 +2037,8 @@ the acquisition window, and the two callers use it differently on purpose:
 - **`correlate` skips and says so** — the 133 detections are real work and are still returned;
   what is withheld is the matched/dark verdict, because there is nothing to have matched against.
   The scene's provenance note now opens `DETECTION ONLY`, and `draft_intrep` leads its caveats
-  with *"nenhuma das 133 deteção(ões) foi avaliada contra AIS. São deteções, não deteções
-  escuras."*
+  with *"none of the 133 detection(s) above has been assessed against AIS. They are
+  detections, not dark detections."*
 
 The predicate is checked **before** the join rather than inferred from its output, and it is
 deliberately binary: one AIS position counts as a feed. A sparsity *threshold* here would be a
@@ -1979,7 +2057,7 @@ Denmark is unchanged and regression-checked: 60 detections, 45 matched, 15 dark,
 note now records *"matched against dma — 38,178 AIS positions within ±11 min"*, so a future
 `133 dark` cannot be mistaken for a correlation that ran.
 
-### 38. ⭐⭐ The Portuguese excess is not clutter — the detector counts one vessel several times
+### 38. ⭐⭐ The Lisbon-AOI excess is not clutter — the detector counts one vessel several times
 
 The GFW cross-check was built expecting to confirm the detector generalises. It did, and it also
 answered a question nobody had asked properly. Over the identical granule
@@ -2008,7 +2086,7 @@ median        152 m
 
 Sixty-one per cent of the excess is sitting on top of something we already counted. This granule
 holds nearer **82 distinct targets than 133**. The detector has no merge step, and finding 31
-already saw the mechanism in the chips without drawing the conclusion: Portuguese scenes show
+already saw the mechanism in the chips without drawing the conclusion: Lisbon-AOI scenes show
 heavy **azimuth smear**, and the region-growing sizer picks up the smear, so one hull becomes
 several blobs.
 
@@ -2075,8 +2153,8 @@ scene-specific, which is consistent with the coastal-clutter reading.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| **Portuguese demo AOI** | **Deliberately still open** — recorder covers both | Two viable candidates and no need to choose yet. **Lisbon/Tagus** `-10.5 38.0 → -8.5 39.5` has the best measured coverage (46 in 2 weeks, 81 in June, all VV+VH) and the EMSA-runs-from-Lisbon narrative. **Leixões** `-9.8 40.9 → -8.6 41.6` has three overlapping S1 paths (125/45/147) instead of two, so ~50% more acquisitions. Decide after Friday's scenes are on disk, not before. |
-| **AIS recorder bbox** | **Union: lat 38.0–42.5, lon −11.5 → −8.0** | Spans both Portuguese candidates with margin. Costs a larger footprint and some offshore dead space; buys the ability to change AOI after seeing real data. You can always filter down, never back-fill. `NIGHTGLASS_RECORD_BBOX_LAT/LON` in `.env`. **Axis order is `[[lat,lon],[lat,lon]]`** — opposite to most GIS tooling, and the most common way to get a silently empty stream. |
+| **Demo AOI** | **Deliberately still open** — recorder covers both | Two viable candidates and no need to choose yet. **Lisbon/Tagus** `-10.5 38.0 → -8.5 39.5` has the best measured coverage (46 in 2 weeks, 81 in June, all VV+VH) and the EMSA-runs-from-Lisbon narrative. **Leixões** `-9.8 40.9 → -8.6 41.6` has three overlapping S1 paths (125/45/147) instead of two, so ~50% more acquisitions. Decide after Friday's scenes are on disk, not before. |
+| **AIS recorder bbox** | **Union: lat 38.0–42.5, lon −11.5 → −8.0** | Spans both Iberian candidates with margin. Costs a larger footprint and some offshore dead space; buys the ability to change AOI after seeing real data. You can always filter down, never back-fill. `NIGHTGLASS_RECORD_BBOX_LAT/LON` in `.env`. **Axis order is `[[lat,lon],[lat,lon]]`** — opposite to most GIS tooling, and the most common way to get a silently empty stream. |
 | **Danish validation date** | **2026-07-17** | S1D descending, granules 05:23:24 + 05:23:49 UTC. AIS day was the smallest candidate (848 MB) and the overpass sits earliest in the descending window. |
 | **AIS ingest transport** | S3 REST against `aisdata.ais.dk.s3.eu-central-1.amazonaws.com` | Guide's `web.ais.dk` host is dead; official page is JS-rendered and unscrapeable. S3 REST is public, paginates, and needs no auth. See correction 1. |
 | **AIS dedup key** | `(MMSI, timestamp, lat, lon)` | 71% of rows are rebroadcast duplicates (correction 7). Must happen before matching. |
@@ -2117,7 +2195,7 @@ ENVIRONMENT
 
 PORTUGAL (demo AOI)
 [x] ASF count query >0 for chosen bbox → 46, risk retired
-[x] Portuguese AOI fixed → Lisbon/Tagus -10.5 38.0 → -8.5 39.5
+[x] Demo AOI fixed → Lisbon/Tagus -10.5 38.0 → -8.5 39.5
 [x] S1 GRD over Portugal downloaded, VH opens (path 125, covers approaches)
 [x] GFW API token obtained + verified (HTTP 200)
 [x] GFW per-detection records + matched flags → 4wings/tile/position, NOT

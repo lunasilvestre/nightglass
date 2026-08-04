@@ -74,7 +74,7 @@ Substitute freely if something won't install. Note the swap in `NOTES.md` and mo
 | Choice | Reason |
 |---|---|
 | Qdrant over pgvector | Single binary, trivial offline deploy, no external deps. Nelson already runs pgvector in production — Qdrant shows breadth and is a common air-gapped default. |
-| bge-m3 | Genuinely multilingual (100+ languages incl. Portuguese). Deployments are national; corpus and queries won't be English-only. |
+| bge-m3 | Genuinely multilingual (100+ languages). Deployments are national, so a corpus and its queries will not always share a language; the model keys on meaning rather than on language. |
 | Qwen2.5 **14B** | Fits consumer VRAM at q4_K_M (~9 GB of 24 GB, leaving room for bge-m3 at ~1.2 GB), strong tool-calling, permissive licence. **[CORRECTED]** — this row said 7B while §2's stack block and §3.4 both specify `qwen2.5:14b-instruct-q4_K_M`. 14B is the decision; 24 GB VRAM affords it. |
 | **Ollama** over vLLM / TGI+TEI | **One service serves chat *and* embeddings** — vLLM and TGI are one-model-per-process, so they'd need two containers. Ollama and llama.cpp support fully air-gapped operation; **vLLM requires network configuration** to reach full isolation, which is the entire M1 milestone. Models are content-addressed blobs in a single directory (`OLLAMA_MODELS`), so the M7 bundler is a tar of one folder rather than an untangling of a HuggingFace cache. Honest limit: Ollama serialises concurrent requests and vLLM does ~3.2× throughput — irrelevant for a single-analyst demo, and §1 excludes scale explicitly. The defensible line is *"Ollama for the enclave, vLLM if this became multi-tenant."* |
 | LangGraph over CrewAI | Explicit state machine with an interruptible node — needed for the human-in-the-loop gate. Also closes a framework the JD names. |
@@ -89,13 +89,13 @@ Substitute freely if something won't install. Note the swap in `NOTES.md` and mo
 
 ### 3.1 Two AOIs — and why
 
-**No free _historical, complete_ point-level AIS exists for Portuguese waters.** Verified: GFW's ORBCOMM sublicence forbids redistributing AIS "or any portion or derivative thereof", DGRM publishes nothing, EMSA restricts SafeSeaNet to national administrations, and satellite AIS free tiers disappeared in the 2025 Kpler/S&P consolidation. Denmark is the only European state publishing free point-level **historical** AIS.
+**No free _historical, complete_ point-level AIS exists for Iberian waters.** Verified: GFW's ORBCOMM sublicence forbids redistributing AIS "or any portion or derivative thereof", DGRM publishes nothing, EMSA restricts SafeSeaNet to national administrations, and satellite AIS free tiers disappeared in the 2025 Kpler/S&P consolidation. Denmark is the only European state publishing free point-level **historical** AIS.
 
 > **[CORRECTED 2026-08-03]** This section originally claimed, flatly, that *no* free
-> point-level AIS exists for Portuguese waters. That is too strong and would not survive
+> point-level AIS exists for Iberian waters. That is too strong and would not survive
 > being challenged. **aisstream.io** serves free real-time global point-level AIS over
-> WebSocket and does cover Portuguese waters — verified by pulling MMSI 263701390
-> `GIL VICENTE` (263 = Portuguese flag) from the Tagus estuary.
+> WebSocket and does cover Iberian waters — verified by pulling MMSI 263701390
+> `GIL VICENTE` from the Tagus estuary.
 >
 > Two qualifiers keep the two-AOI design intact:
 > - **No archive.** Real-time only, so it cannot serve a past acquisition. It works only by
@@ -145,19 +145,19 @@ The AIS layer needs a **source adapter interface** with at least two implementat
 > thinning measurement above and §7's "a dark detection is a lead, not a conclusion".
 
 **Portugal:**
-- ~~Sentinel-1 coverage over Portuguese waters is **unverified**~~ → **[VERIFIED 2026-08-03] Coverage is healthy; this risk is retired.** ASF `GRD_HD` counts, 1–15 Jun 2026: Lisbon/Tagus **46**, deep Atlantic **34**, Porto/Leixões **31**, Algarve **28**, Azores 5, Madeira 4. Coastal *and* open ocean both fine — the concern that S1 doesn't image open ocean did not hold here. Full June over Lisbon: **81 granules, 100% dual-pol VV+VH**, so VH is available for detection on every scene.
+- ~~Sentinel-1 coverage over the Iberian AOI is **unverified**~~ → **[VERIFIED 2026-08-03] Coverage is healthy; this risk is retired.** ASF `GRD_HD` counts, 1–15 Jun 2026: Lisbon/Tagus **46**, deep Atlantic **34**, Porto/Leixões **31**, Algarve **28**, Azores 5, Madeira 4. Coastal *and* open ocean both fine — the concern that S1 doesn't image open ocean did not hold here. Full June over Lisbon: **81 granules, 100% dual-pol VV+VH**, so VH is available for detection on every scene.
 - GFW SAR detections via free token; `gfw_sar_vessel_detections(spatial_resolution="HIGH", temporal_resolution="HOURLY", group_by="MMSI", filter_by="matched='false'")`. CC BY-NC 4.0.
 
 > **[RESOLVED 2026-08-03 — per-detection `matched` flags ARE retrievable, and this is better
 > than assumed.]** The open worry was that the public API returns only gridded aggregate counts,
-> degrading the Portuguese reference layer to "GFW saw N here, my detector saw M". It does not.
+> degrading the Lisbon reference layer to "GFW saw N here, my detector saw M". It does not.
 > `/v3/4wings/report` is the aggregate endpoint — that is what earlier probing found — but
 > **`/v3/4wings/tile/position/{z}/{x}/{y}`** returns individual detection points as MVT and
 > accepts `filters[0]=matched='false'`. Verified over the Lisbon AOI, z9 tile 242/196,
 > 2026-06-13: **13 detections = 10 matched + 3 unmatched.**
 >
 > Decisively, each feature's `id` is `<granule_id>;<lon>;<lat>` — and that granule
-> (`S1A_IW_GRDH_1SDV_20260613T064316_..._F72E`) is one already downloaded. So the Portuguese
+> (`S1A_IW_GRDH_1SDV_20260613T064316_..._F72E`) is one already downloaded. So the Lisbon
 > cross-check is a **detection-for-detection comparison against a published layer computed over
 > the identical granule**, including GFW's own unmatched flags. Stronger than this section
 > assumed. Not yet built — it is the top M4 item.
@@ -243,15 +243,16 @@ Ingest corpus → chunk → embed with bge-m3 → Qdrant. Retrieval returning ch
 **Done when:** a question returns an answer whose factual claims map to retrievable chunk IDs, and an unanswerable question produces an explicit "not supported by available sources" rather than a guess.
 
 > **[VERIFIED 2026-08-03] bge-m3 cross-lingual retrieval works, which §6 depends on.**
-> A Portuguese query must retrieve English documents. Measured cosine similarity, 1024-dim:
+> A query must retrieve documents that do not share its language. Measured cosine similarity,
+> 1024-dim, using a non-English query against its English equivalent:
 >
 > | pair | cosine |
 > |---|---|
-> | *"embarcação não declarada… ao largo de Lisboa"* ↔ its English equivalent | **0.842** |
-> | same Portuguese text ↔ unrelated Portuguese text | 0.283 |
+> | a non-English phrasing of *"undeclared vessel off Lisbon"* ↔ its English equivalent | **0.842** |
+> | that same text ↔ unrelated text in the same language | 0.283 |
 >
 > A 0.56 separation between cross-lingual-same-meaning and same-language-different-meaning
-> means the embedding keys on meaning, not language. The Portuguese demo query will retrieve
+> means the embedding keys on meaning, not language. A cross-language query will retrieve
 > an English corpus.
 >
 > **This choice is one-way:** switching embedding models later means re-embedding everything.
@@ -268,19 +269,19 @@ The six tools (§5) as FastAPI endpoints. FastMCP server over the same functions
 **Done when:** the tools are callable over MCP from Claude Desktop, *and* the local Qwen model chains at least three of them to answer a query.
 
 > **[VERIFIED 2026-08-03 — the chaining half already passes.]** Dry-run against ollama 0.32.5
-> with stub tool results, using §6's actual Portuguese query:
+> with stub tool results, using §6's actual demo query:
 >
 > ```
 > stac_search({"bbox":[-10.5,38,-8.5,39.5],"start":"2026-07-31T19:00Z","end":"2026-08-03T00:00Z"})
 > detect_vessels({"scene_id":"S1D_20260802T063352","min_length_m":20})
 > ais_match({"detections":["det_001","det_002"],"radius_m":500})
-> → final answer, in Portuguese
+> → final answer
 > ```
 >
-> Three distinct tools chained unprompted. It parsed the bbox out of Portuguese prose and
-> resolved *"últimas 72 horas"* against *"Hoje é 2026-08-03"* into a correct window. It also
-> hedged without being asked — *"pode não ser declarada"* — which is §7's "a lead, not a
-> conclusion" arriving for free.
+> Three distinct tools chained unprompted. It parsed the bbox out of prose and resolved
+> *"the last 72 hours"* against *"today is 2026-08-03"* into a correct window. It also hedged
+> without being asked — *"may be undeclared"* — which is §7's "a lead, not a conclusion"
+> arriving for free.
 >
 > **⚠️ Build a loop-breaker into M5 anyway.** When a tool result contradicts what the model
 > asked for — feeding back a 17 Jul scene after it requested 31 Jul–3 Aug — it re-called
@@ -296,7 +297,7 @@ LangGraph: `parse → plan → tools → correlate → draft_intrep → HUMAN_GA
 
 Use LangGraph's interrupt mechanism rather than a bare `input()`, so execution genuinely halts with inspectable persisted state. That distinction is the interesting part.
 
-**Done when:** a Portuguese-language question runs through to a drafted INTREP, halts at the gate, resumes on approval.
+**Done when:** an analyst question runs through to a drafted INTREP, halts at the gate, resumes on approval.
 
 ### M6 — Package
 README with architecture diagram, design-decision table, limitations, licence. 90-second screen recording.
@@ -352,11 +353,11 @@ Tools stay pure functions over the database — no hidden state, no caching that
 
 ## 6. The demo
 
-**Run the demo over the Portuguese AOI.** Denmark appears in the README as the validation case with the real correlation numbers; Portugal is what gets recorded.
+**Run the demo over the Lisbon AOI.** Denmark appears in the README as the validation case with the real correlation numbers; Lisbon is what gets recorded.
 
-An analyst asks, in Portuguese:
+An analyst asks:
 
-> *"Houve alguma embarcação não declarada na área X nas últimas 72 horas?"*
+> *"Were there any undeclared vessels in area X in the last 72 hours?"*
 
 1. Agent parses AOI and time window
 2. `stac_search` → SAR scenes covering it
@@ -371,7 +372,7 @@ Closing shot: `docker compose exec api curl -m 5 https://google.com` fails, and 
 
 90 seconds, terminal output, no narration needed.
 
-The Portuguese query isn't decoration — the JD requires a native speaker deploying in-country, and bge-m3 handles it.
+The corpus stays multilingual-capable even though every document in it is now English: deployments are national, and bge-m3 was chosen so a query need not share a language with its sources.
 
 ---
 
@@ -405,7 +406,7 @@ The README is what a hiring manager actually reads.
 6. **Data sources and licences** — GFW CC BY-NC 4.0; DMA attribution line verbatim; synthetic documents identified as synthetic
 7. **Limitations** — no free *historical, complete* point-level AIS for Portugal, so GFW detections are a reference layer not an independent correlation; any self-collected aisstream AIS is a **thinned** feed (~3% of expected message volume measured) and therefore cannot support a dark-vessel *rate*, only a demonstration of the mechanism; single scene per AOI; no CFAR tuning; no accuracy claims beyond what was measured; dark ≠ guilty
    - State the aisstream sparsity **as a measured number, not a hedge**. "I measured ~1.4 messages per vessel per 4 minutes against ~40 expected, so I did not claim a dark rate from it" is a much stronger answer than omitting the source or overclaiming it — it shows the completeness question was tested rather than assumed.
-   - Also worth a short **related work** note citing Magalhães, Falcão & Barbosa (2025), IST Lisbon — Sentinel-2 optical vessel detection with YOLO. Positions NIGHTGLASS as the SAR complement to active Portuguese optical work, and sets up the contrast: optical fails at night and under cloud, which is the entire SAR value proposition.
+   - Also worth a short **related work** note citing Magalhães, Falcão & Barbosa (2025), IST Lisbon — Sentinel-2 optical vessel detection with YOLO. Positions NIGHTGLASS as the SAR complement to active Iberian optical work, and sets up the contrast: optical fails at night and under cloud, which is the entire SAR value proposition.
 8. **What I'd do with three more weeks** — real CFAR with sea-state adaptation, multi-scene temporal tracking, coherent change detection with SLC, offline CI/CD, SBOM and image pinning
 
 Sections 7 and 8 punch above their weight. Volunteering limitations before being asked reads as senior, and "what's next" shows you know the difference between a weekend artifact and a system.
@@ -435,7 +436,7 @@ At some point he should make a non-trivial change himself. Hands in it beats rea
 [~] PRE_DEV_GUIDE.md checklist complete   ← real data on disk before M2
     [x] document corpus assembled — 39 fetched + 21 synthetic, see corpus/README.md
     [x] environment verified (GPU, docker, GDAL, python geo stack)
-    [x] Portuguese S1 coverage verified — top risk retired
+    [x] Lisbon AOI S1 coverage verified — top risk retired
     [x] DMA source relocated, 2 days downloaded (1.4 GB), schema verified
     [x] DMA timezone resolved = UTC
     [x] AIS acquisition-window gate PASSED — 907 vessels / 134,851 positions
@@ -454,12 +455,12 @@ At some point he should make a non-trivial change himself. Hands in it beats rea
 [x] M4  six tools, MCP server, Claude Desktop + local model both driving it   ← 2026-08-03
         MCP over stdio: 7 tools listed and called, protocol 2025-06-18.
         qwen2.5:14b chained stac_search -> detect_vessels -> ais_match unaided from a
-        Portuguese question; 45 matched / 15 dark, and the 15 ids it reported match the
+        analyst question; 45 matched / 15 dark, and the 15 ids it reported match the
         database exactly. correlate reuses recorded detector runs (ids stay stable);
         draft_intrep refuses a dark rate on BOTH the source and the precision side.
 [x] M5  LangGraph agent, real interrupt at HIL gate   ← 2026-08-04
         parse → plan → tools → correlate → draft_intrep → HUMAN_GATE → release,
-        against a Postgres checkpointer. Portuguese question drafts an 18-claim
+        against a Postgres checkpointer. An analyst question drafts an 18-claim
         INTREP (0 unsupported), the CONTAINER exits at the gate, and a different
         container resumes from 104 kB of persisted state and releases it.
         Reject withholds; a released run cannot be re-approved. The rate scrubber

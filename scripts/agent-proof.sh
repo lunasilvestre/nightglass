@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # EXECUTION_SPEC §M5's proof, as a repeatable command.
 #
-#   "Done when: a Portuguese-language question runs through to a drafted INTREP,
+#   "Done when: an analyst question runs through to a drafted INTREP,
 #    halts at the gate, resumes on approval."
 #
 # The halt is the milestone, so it is demonstrated the only way that means
@@ -26,7 +26,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'; YELL=$'\033[33m'; GREEN=$'\033[32m'
 
 AOI=${AGENT_AOI:-kattegat}
-Q=${Q:-"Houve alguma embarcação sem correspondência AIS na área de interesse em 17 de julho de 2026? O que significa isso?"}
+Q=${Q:-"Were there any vessels with no AIS correspondence in the area of interest on 17 July 2026? What does that mean?"}
 
 # Every call is a FRESH CONTAINER, not an exec into a running one. That is the
 # demonstration: the container that drafts the report is gone by the time the
@@ -45,7 +45,7 @@ rule "0. The enclave still has no way out"
 echo "${DIM}\$ docker compose exec api curl -m 5 https://example.com${RESET}"
 docker compose exec -T api curl -m 5 https://example.com 2>&1 | head -2 || true
 
-rule "1. A Portuguese question, run to the gate — and this process then exits"
+rule "1. An analyst question, run to the gate — and this process then exits"
 THREAD=$(agent ask "$Q" 2>&1 | tee /dev/stderr | grep -oE 'ng-[0-9a-f]{12}' | head -1)
 if [[ -z "${THREAD:-}" ]]; then
   echo "${YELL}The agent did not reach the gate.${RESET}" >&2

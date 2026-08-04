@@ -20,7 +20,7 @@ Get the environment and real data ready before Claude Code starts building.
 
 ## The plan, in one page
 
-**No open historical AIS exists for Portuguese waters.** Not a paperwork problem — a licensing structure. Global Fishing Watch's ORBCOMM sublicence forbids redistributing AIS "or any portion or derivative thereof," so GFW publishes gridded effort and event summaries, never raw positions, at any tier. DGRM runs the national VTS and is the SafeSeaNet authority but publishes nothing. EMSA restricts SafeSeaNet to "EU and national administrations only." Satellite AIS free tiers vanished in the 2025 Kpler/S&P consolidation.
+**No open historical AIS exists for Iberian waters.** Not a paperwork problem — a licensing structure. Global Fishing Watch's ORBCOMM sublicence forbids redistributing AIS "or any portion or derivative thereof," so GFW publishes gridded effort and event summaries, never raw positions, at any tier. DGRM runs the national VTS and is the SafeSeaNet authority but publishes nothing. EMSA restricts SafeSeaNet to "EU and national administrations only." Satellite AIS free tiers vanished in the 2025 Kpler/S&P consolidation.
 
 **So you collect it yourself.** With an aisstream.io key you get live point-level position reports over a bounding box — free, legally clean, no favours owed. The catch is no archive: you record forward, then pair with a Sentinel-1 acquisition that falls inside your recording window.
 
@@ -33,7 +33,7 @@ That constraint sets the whole schedule:
 | Available | **Fri 7 Aug** (next overpass) | **today** |
 | Role | the demo, real independent fusion | validates the matcher while you wait |
 
-**The narrative this buys is better than any dataset.** "There's no open AIS for Portuguese waters, so I stood up my own collection" is a forward-deployed story in itself — the data you needed didn't exist in convenient form, so you built the pipeline. That's the job description.
+**The narrative this buys is better than any dataset.** "There's no open AIS for the mission AOI, so I stood up my own collection" is a forward-deployed story in itself — the data you needed didn't exist in convenient form, so you built the pipeline. That's the job description.
 
 GFW SAR detections remain useful as an **independent cross-check** on your detector, but you no longer depend on them for the AIS side.
 
@@ -161,7 +161,7 @@ Scene size from ASF: **780–940 MB** for dual-pol IW GRDH (smaller than CDSE's 
 
 Cover both Friday footprints with margin. Path 125 descending spans roughly lon −7.3 to −10.8, lat 40.8–42.8; path 45 ascending spans lon −8.2 to −11.6, lat 39.6–41.5.
 
-> **[DECIDED 2026-08-03] Record the union of both Portuguese AOIs: lat 38.0–42.5,
+> **[DECIDED 2026-08-03] Record the union of both Iberian AOIs: lat 38.0–42.5,
 > lon −11.5 to −8.0.** This spans Leixões *and* Lisbon/Tagus, so the AOI choice stays open
 > until Friday's scenes are actually on disk rather than being locked now. Costs a larger
 > footprint and some offshore dead space; buys the ability to change your mind after seeing
@@ -217,9 +217,9 @@ wget --no-check-certificate --auth-no-challenge -c "<downloadUrl>"
 >    `netrc.netrc()` dies on it. Drop the line or read credentials another way.
 
 > **[CORRECTED]** **~640–990 MB** per dual-pol IW GRDH scene, not 1.7–2.1 GB. Measured across
-> 153 granules over both AOIs: Portuguese June scenes ran 640–850 MB, Danish July scenes
+> 153 granules over both AOIs: Iberian June scenes ran 640–850 MB, Danish July scenes
 > 780–960 MB. (Step 2's "780–940 MB" is the right order of magnitude but slightly narrow —
-> the Portuguese scenes go lower.) As Step 2 notes, the 1.7–2.1 GB figure describes CDSE's
+> the Iberian scenes go lower.) As Step 2 notes, the 1.7–2.1 GB figure describes CDSE's
 > original SAFE, not what ASF serves.
 
 **Why ASF over CDSE:** ASF serves classic `.zip` SAFE. CDSE defaults Sentinel-1 GRD to `_COG.SAFE`, and original SAFE older than one year is now "Deferred Available Data" requiring an order step with a 0.1 TB/month quota. ASF sidesteps all of it.
@@ -306,7 +306,7 @@ Free API token: <https://globalfishingwatch.org/our-apis/tokens>. Licence **CC B
 The relevant product is **`gfw_sar_vessel_detections()`** (R package `gfwr` 3.0) or the equivalent in the Python client. It's built on Paolo et al. 2024, *Nature* 625:85–91 — Sentinel-1 detections with AIS matching already performed.
 
 ```r
-# Unmatched detections = dark vessels, Portuguese mainland EEZ
+# Unmatched detections = dark vessels, mainland Iberian EEZ
 gfw_sar_vessel_detections(
   spatial_resolution  = "HIGH",        # 0.01° ≈ 1.1 km
   temporal_resolution = "HOURLY",
@@ -316,7 +316,7 @@ gfw_sar_vessel_detections(
 )
 ```
 
-GFW ships Marine Regions v12 with three separate Portuguese EEZ polygons: mainland, **Azores (MRGID 8361)**, **Madeira (MRGID 8363)**. Matched detections additionally carry MMSI, IMO, callsign, flag, gear type and vessel name; unmatched carry entry/exit timestamps at second precision.
+GFW ships Marine Regions v12 with three separate EEZ polygons for the country: mainland, **Azores (MRGID 8361)**, **Madeira (MRGID 8363)**. Matched detections additionally carry MMSI, IMO, callsign, flag, gear type and vessel name; unmatched carry entry/exit timestamps at second precision.
 
 **Two caveats, both important:**
 
@@ -507,16 +507,16 @@ PORTUGAL — detector work now, fusion on Fri 7 Aug
 [ ] After Friday: scene downloaded, paired with recorded AIS, matcher runs
 ```
 
-The Danish line is the near-term gate — SAR pixels plus a few hundred AIS positions inside the footprint at acquisition time, and the matcher is unblocked. The Portuguese line on Friday is what makes it the mission demo.
+The Danish line is the near-term gate — SAR pixels plus a few hundred AIS positions inside the footprint at acquisition time, and the matcher is unblocked. The Iberian line on Friday is what makes it the mission demo.
 
 ---
 
 ## Prior art
 
 - **Magalhães, Falcão & Barbosa (2025)** — "Vessel detection leveraging satellite imagery and YOLO in maritime surveillance," *Remote Sensing Applications: Society and Environment* 40:101730, <https://doi.org/10.1016/j.rsase.2025.101730>. **IST Lisbon.** YOLOv8 vs YOLOv10 on **Sentinel-2 optical**, with a medium-resolution-trained model transferred to high-resolution **GEOSAT** imagery. Motivated explicitly by AIS non-reporting and manipulation — the same problem NIGHTGLASS addresses, approached from the optical side. Free extended abstract (MSc thesis): <https://fenix.tecnico.ulisboa.pt/downloadFile/1970719973971750/95967extendedabstract.pdf>
-  - **Cite this in the README as related work.** It's the local research landscape, it's recent, and it sets up the optical-vs-SAR contrast cleanly: their approach fails at night and under cloud, which is precisely ICEYE's value proposition. Positioning NIGHTGLASS as the SAR complement to active Portuguese optical work is a much better framing than presenting it in a vacuum.
+  - **Cite this in the README as related work.** It's the local research landscape, it's recent, and it sets up the optical-vs-SAR contrast cleanly: their approach fails at night and under cloud, which is precisely ICEYE's value proposition. Positioning NIGHTGLASS as the SAR complement to active regional optical work is a much better framing than presenting it in a vacuum.
 - **SatShipAI** — Nasios & Vogklis, *Electronics* 2025, 14(18), 3648 ([open access](https://doi.org/10.3390/electronics14183648)). Six years of operational Sentinel-1 with **DMA AIS specifically**. Documents real failure modes: orbit-file delays, wind farms as false positives. Closest published work to the Danish half. Live at <https://satshipai.eu/live/>
-- **Paolo et al. 2024**, *Nature* 625:85–91 — the paper behind GFW's SAR detections. Read this; it's the reference your Portuguese layer rests on.
+- **Paolo et al. 2024**, *Nature* 625:85–91 — the paper behind GFW's SAR detections. Read this; it's the reference your GFW reference layer rests on.
 - **OpenOceanWatch** — Heiselberg, DTU Space. <https://www.openoceanwatch.com/>, method paper <https://doi.org/10.3390/rs16244719>
 - **CDSE official notebook** — `ship_detection_and_ais_identification.ipynb` in <https://github.com/eu-cdse/notebook-samples>
 - **Global Fishing Watch matcher** — <https://github.com/GlobalFishingWatch/paper-industrial-activity> — the only open *probabilistic* SAR↔AIS matcher. Apache-2.0 but frozen mid-2024 and BigQuery-coupled. Port the algorithm, don't run the repo.
@@ -530,9 +530,9 @@ There is **no maintained production-quality open-source SAR↔AIS correlation li
 
 Expect "why did you use Danish data?" — and it's a gift of a question:
 
-> "Denmark is the only European state that publishes free point-level AIS, so that's where I could validate the correlation engine honestly. The mission AOI is the Portuguese EEZ, where there's no open AIS at all — DGRM runs the national VTS and is the SafeSeaNet authority, and EMSA restricts SafeSeaNet to national administrations. So in a real deployment the customer brings the feed and I bring the system. That gap between where the open data is and where the mission is, is basically the forward-deployed job."
+> "Denmark is the only European state that publishes free point-level AIS, so that's where I could validate the correlation engine honestly. The mission AOI is the Iberian EEZ, where there's no open AIS at all — DGRM runs the national VTS and is the SafeSeaNet authority, and EMSA restricts SafeSeaNet to national administrations. So in a real deployment the customer brings the feed and I bring the system. That gap between where the open data is and where the mission is, is basically the forward-deployed job."
 
-Two details that make it land harder: **EMSA's Copernicus Maritime Surveillance service does exactly this SAR-plus-AIS fusion, is restricted to national authorities, and is run out of Lisbon.** You're building the open-source shadow of a service that already operates from the city you'd be deployed in. And **DGRM's MONICAP VMS has a scientific-research access provision** — which is the legitimate route to real Portuguese positional data, and a sensible thing to say you'd pursue.
+Two details that make it land harder: **EMSA's Copernicus Maritime Surveillance service does exactly this SAR-plus-AIS fusion, is restricted to national authorities, and is run out of Lisbon.** You're building the open-source shadow of a service that already operates from the city you'd be deployed in. And **DGRM's MONICAP VMS has a scientific-research access provision** — which is the legitimate route to real national positional data, and a sensible thing to say you'd pursue.
 
 ---
 
@@ -542,7 +542,7 @@ Two details that make it land harder: **EMSA's Copernicus Maritime Surveillance 
 
 **Verified by running it:**
 
-- **Sentinel-1 density over Portuguese waters** — was the "highest-priority unknown". **Retired.**
+- **Sentinel-1 density over the Iberian AOIs** — was the "highest-priority unknown". **Retired.**
   ASF `GRD_HD` counts, 1–15 Jun 2026: Lisbon/Tagus **46**, deep Atlantic **34**, Porto **31**,
   Algarve **28**, Azores 5, Madeira 4. Coastal *and* open ocean are healthy. Full June over
   Lisbon: 81 granules, **100% dual-pol VV+VH**, so VH is available on every scene.
@@ -563,8 +563,8 @@ Two details that make it land harder: **EMSA's Copernicus Maritime Surveillance 
 - `web.ais.dk` is dead; the service moved to an S3 bucket (Step 5).
 - Ascending Denmark overpass starts **16:44**, not 16:52.
 - Scene size ~780–990 MB, not 1.7–2.1 GB.
-- **"No free point-level AIS exists for Portuguese waters" was too strong** — aisstream.io
-  serves free real-time point-level AIS covering Portuguese waters. The accurate claim is
+- **"No free point-level AIS exists for Iberian waters" was too strong** — aisstream.io
+  serves free real-time point-level AIS covering them. The accurate claim is
   *no free **historical, complete** point-level AIS*. See the Step 3b box for why the
   completeness qualifier matters more than the historical one.
 

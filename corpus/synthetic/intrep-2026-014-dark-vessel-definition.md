@@ -28,8 +28,8 @@ corresponding Automatic Identification System (AIS) report can be found in the
 reference feed**, within a stated distance and time tolerance of the detection's
 position and the image acquisition instant.
 
-The Portuguese term of art used in this cell is **embarcação escura**, and the
-longer form **embarcação não declarada** ("non-declared vessel") is preferred in
+The term of art used in this cell is **dark vessel**, and the longer form
+**undeclared vessel** is preferred in
 drafting because it is harder to misread.
 
 ## 2. What the term does NOT mean

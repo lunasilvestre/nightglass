@@ -28,7 +28,7 @@ carries working Earthdata credentials and the ASF EULA is accepted, and the patt
 `target: fetcher`, `user: ${HOST_UID}`, credentials forwarded from the invoking shell rather than
 written into `.env`. The six granule ids are in `stac.scenes` and in NOTES.
 
-**2. The demo AOI has no AIS, and §6 says record over Portugal.** This is not a bug and the tools
+**2. The demo AOI has no AIS, and §6 says record over the Lisbon AOI.** This is not a bug and the tools
 are honest about it — `ais_match` raises rather than reporting 133 unmatched detections,
 `correlate` returns the detections with the verdict withheld, and the INTREP leads with "these
 are detections, not dark detections". But a recording of a refusal is a strange demo. aisstream
@@ -36,11 +36,11 @@ cannot fix it: the adapter says so itself, it is real-time only with no archive,
 recorded now can serve a June acquisition.
 
 Pick before you build the recording, not during it. The options, in the order they are worth
-trying, are in the M6 handoff in NOTES. My recommendation is **Portugal for detection, the GFW
-cross-check and the Portuguese-language INTREP; Denmark for the correlation numbers.** Two AOIs
+trying, are in the M6 handoff in NOTES. My recommendation is **the Lisbon AOI for detection, the GFW
+cross-check and the drafted INTREP; Denmark for the correlation numbers.** Two AOIs
 on screen makes §3.1's config-driven argument visible instead of asserted, and it needs nothing
 new built — `make fetch-gfw && make gfw-compare` already works. Whatever you choose, do not let
-the recording imply a Portuguese dark-vessel finding.
+the recording imply a dark-vessel finding over the Lisbon AOI.
 
 ## The numbers changed recently — use the current ones
 
@@ -67,7 +67,7 @@ spec asks. Do not soften the 40%.
 ## One habit worth inheriting
 
 **Ask Denmark first.** The fragmentation bug was found sideways through a GFW comparison over
-Portugal when a single `Counter(mmsi)` over the Danish matched set would have shown it
+the Lisbon AOI when a single `Counter(mmsi)` over the Danish matched set would have shown it
 immediately, with ground truth instead of a second opinion. Before building anything to answer a
 question about the detector, check whether the DMA AIS already answers it. It usually does, and
 it answers definitively.

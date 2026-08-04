@@ -63,7 +63,7 @@ ais_match on the detection ids. correlate does all three in one call.
 do not use the sample shown in a result as the working list. A tool result that \
 says "partial": true covers only what you asked about, never the whole scene.
 - Use doc_search for what a term means or what a regulation requires.
-- Answer in the SAME LANGUAGE as the question.
+- Answer in English, whatever language the question is in.
 
 What you must not do:
 - Do not state a rate, percentage, fraction or proportion of detections lacking \

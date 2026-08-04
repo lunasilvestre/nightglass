@@ -33,7 +33,7 @@ entire reason this cell uses SAR rather than optical imagery.
 
 Optical vessel detection is real, useful, and complementary — but it fails
 exactly when maritime surveillance most needs an answer: at night, and under the
-Atlantic cloud that covers the Portuguese coast for much of the year.
+Atlantic cloud that covers the Iberian coast for much of the year.
 
 ## 2. What a detection is
 

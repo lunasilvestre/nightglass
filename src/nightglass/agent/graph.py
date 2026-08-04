@@ -23,8 +23,8 @@ version of this docstring claimed readable JSON.
 **The answer is assembled from the correlation, not from the model's
 recollection of it.** This is not caution for its own sake — it is the fix for a
 measured failure. In M4's proof run the model got every per-scene count right,
-listed thirty real detection ids, and still wrote *"das 60 detecções … 15 não"*,
-conflating two scenes while summarising. Nothing in a prompt fixes that
+listed thirty real detection ids, and still summarised them as "of the 60
+detections … 15 were not", conflating two scenes into one scene's framing. Nothing in a prompt fixes that
 reliably. So the spatial backbone is deterministic (`correlate` is called with
 the parsed bbox, whatever the model did in the `tools` node), the findings are
 templated from the `CorrelationResult` by `draft_intrep`, and the model's own
@@ -71,7 +71,6 @@ class AgentState(TypedDict, total=False):
     """
 
     question: str
-    language: str
     bbox: list[float]
     start: str
     end: str
@@ -94,14 +93,12 @@ _PARSE_SYSTEM = """\
 You extract search parameters from an analyst's question. Reply only in the \
 required JSON format.
 
-- `language`: "pt" if the question is in Portuguese, otherwise "en".
-- `hours_back`: how far back the question reaches. "últimas 72 horas" is 72, \
-"ontem" is 48, "na semana passada" is 168. Use 72 if it does not say.
+- `hours_back`: how far back the question reaches. "the last 72 hours" is 72, \
+"yesterday" is 48, "last week" is 168. Use 72 if it does not say.
 - `on_date`: an explicit calendar date in the question as YYYY-MM-DD, else null. \
-"17 de julho de 2026" is "2026-07-17".
+"17 July 2026" is "2026-07-17".
 - `document_query`: what to look up in the doctrine corpus to interpret the \
-finding — a short phrase in the question's language, or null if the question is \
-purely about positions.
+finding — a short phrase, or null if the question is purely about positions.
 
 Do not invent coordinates. The area of interest is fixed by configuration.
 """
@@ -109,17 +106,16 @@ Do not invent coordinates. The area of interest is fixed by configuration.
 _PARSE_SCHEMA = {
     "type": "object",
     "properties": {
-        "language": {"type": "string", "enum": ["en", "pt"]},
         "hours_back": {"type": "integer"},
         "on_date": {"type": ["string", "null"]},
         "document_query": {"type": ["string", "null"]},
     },
-    "required": ["language", "hours_back", "on_date", "document_query"],
+    "required": ["hours_back", "on_date", "document_query"],
 }
 
 
 def parse(state: AgentState) -> dict[str, Any]:
-    """Question → language, window, and what to look up. Model-assisted, bounded.
+    """Question → window and what to look up. Model-assisted, bounded.
 
     The bbox is *not* parsed out of the question even though the model could
     often manage it. §3.1 makes the AOI a configuration property — "nothing
@@ -141,11 +137,9 @@ def parse(state: AgentState) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 — a failed parse must not lose the run
         errors.append(f"parse fell back to defaults: {type(exc).__name__}: {exc}")
 
-    language = parsed.get("language") or _guess_language(state["question"])
     start, end = _window(parsed, now, errors)
 
     return {
-        "language": language,
         "bbox": aoi.bbox.as_list(),
         "start": start.isoformat(),
         "end": end.isoformat(),
@@ -168,16 +162,6 @@ def _window(parsed: dict[str, Any], now: datetime, errors: list[str]) -> tuple[d
     return now - timedelta(hours=hours), now
 
 
-def _guess_language(question: str) -> str:
-    """A fallback, not a language detector.
-
-    Only used when the model's parse failed outright. Getting it wrong produces
-    a report in the wrong language, which is visible and recoverable; getting
-    the window wrong produces an empty result, which is not.
-    """
-    hints = ("ã", "ç", "õ", "embarca", "houve", "última", "alguma", "não")
-    lowered = question.lower()
-    return "pt" if any(h in lowered for h in hints) else "en"
 
 
 # -- plan ---------------------------------------------------------------------
@@ -322,7 +306,6 @@ def draft(state: AgentState) -> dict[str, Any]:
     report = draft_intrep(
         CorrelationResult.model_validate(state["correlation"]),
         [Chunk.model_validate(c) for c in state.get("chunks", [])],
-        language=state.get("language", "en"),
     )
     return {"intrep": report.model_dump(mode="json")}
 
@@ -391,33 +374,27 @@ def release(state: AgentState) -> dict[str, Any]:
     """
     intrep = state.get("intrep")
     approved = bool(state.get("approved"))
-    lang = state.get("language", "en")
 
     if intrep is None:
-        return {"answer": _no_report(state, lang)}
+        return {"answer": _no_report(state)}
 
     if not approved:
         note = state.get("reviewer_note") or ""
-        head = (
-            "RELATÓRIO RETIDO no controlo humano — não divulgado."
-            if lang == "pt"
-            else "REPORT WITHHELD at the human gate — not released."
-        )
-        return {"answer": f"{head}\n{('Motivo: ' if lang == 'pt' else 'Reason: ')}{note}".strip()}
+        head = "REPORT WITHHELD at the human gate — not released."
+        return {"answer": f"{head}\nReason: {note}".strip() if note else head}
 
     intrep = {**intrep, "releasable": True}
-    return {"intrep": intrep, "answer": _render(intrep, lang)}
+    return {"intrep": intrep, "answer": _render(intrep)}
 
 
-def _render(intrep: dict[str, Any], lang: str) -> str:
+def _render(intrep: dict[str, Any]) -> str:
     """The analyst-facing text, built from the report's own fields.
 
     Every line here comes from a `Claim` or a caveat that was computed. Nothing
     is generated at this point, which is the whole reason the conflation bug
     measured at M4 cannot recur in the released answer.
     """
-    findings = "ACHADOS" if lang == "pt" else "FINDINGS"
-    caveats = "RESSALVAS" if lang == "pt" else "CAVEATS"
+    findings, caveats = "FINDINGS", "CAVEATS"
 
     lines = [intrep["title"], intrep["classification"], "", findings, "-" * len(findings)]
     for claim in intrep["claims"]:
@@ -433,13 +410,9 @@ def _render(intrep: dict[str, Any], lang: str) -> str:
     return "\n".join(lines)
 
 
-def _no_report(state: AgentState, lang: str) -> str:
+def _no_report(state: AgentState) -> str:
     reasons = "\n".join(f"  - {e}" for e in state.get("errors", [])) or "  - (no reason recorded)"
-    head = (
-        "Sem relatório: a correlação não pôde ser executada."
-        if lang == "pt"
-        else "No report: the correlation could not be run."
-    )
+    head = "No report: the correlation could not be run."
     return f"{head}\n{reasons}"
 
 

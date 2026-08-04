@@ -253,7 +253,7 @@ class CustomerFeedSource(AisSource):
 
     §3.1 originally wanted this as a stub raising "not configured". It does not
     have to be: aisstream.io serves free real-time global point-level AIS over
-    WebSocket and does cover Portuguese waters. Making it a real adapter
+    WebSocket and does cover Iberian waters. Making it a real adapter
     exercises the interface far harder than a second CSV reader would — a
     long-lived connection with reconnect-and-backoff, no SLA, and arrival time
     rather than report time.
