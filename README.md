@@ -26,13 +26,14 @@ real AIS in space *and* time. Six typed tools are served over both HTTP and MCP;
 agent chains them, halts at a human gate, and resumes in a different container. Every byte of
 input is fetched against a checksummed manifest, so a clone reproduces the demo rather than
 reading about it — and the whole system crosses an air gap in one tarball that a static Go
-binary refuses six ways before it will restore. Over the Danish validation AOI, 21 of 35
+binary refuses six ways before it will restore, then stands the same boundary up again in
+Kubernetes as a default-deny egress policy, proved against a negative control. Over the Danish validation AOI, 21 of 35
 detections match a vessel that was actually there at a median 104 m, and every AIS vessel over
 200 m inside the scene footprint is recovered. The local 14B model chains three tools unaided
 from a plain analyst question; Claude Code drives the same tools over a pipe from outside the
 enclave. [`docs/NOTES.md`](docs/NOTES.md) is the running decision log.
 
-**Index:** [demo](#the-demo) · [architecture](#architecture) · [quickstart](#quickstart) · [air-gap proof](#the-air-gap-proof) · [grounded answers](#grounded-answers-and-the-refusal-path) · [dark vessels](#dark-vessels-detection-and-a-spacetime-join) · [agent](#the-agent-and-a-gate-that-actually-stops) · [tools](#six-tools-two-consumers) · [bundle](#crossing-the-gap-one-tarball-and-the-ways-it-refuses) · [design decisions](#design-decisions) · [data & licences](#data-sources-and-licences) · [limitations](#limitations) · [roadmap](#what-id-do-with-three-more-weeks) · [layout](#repository-layout)
+**Index:** [demo](#the-demo) · [architecture](#architecture) · [quickstart](#quickstart) · [air-gap proof](#the-air-gap-proof) · [grounded answers](#grounded-answers-and-the-refusal-path) · [dark vessels](#dark-vessels-detection-and-a-spacetime-join) · [agent](#the-agent-and-a-gate-that-actually-stops) · [tools](#six-tools-two-consumers) · [bundle](#crossing-the-gap-one-tarball-and-the-ways-it-refuses) · [kubernetes](#the-same-boundary-twice) · [design decisions](#design-decisions) · [data & licences](#data-sources-and-licences) · [limitations](#limitations) · [roadmap](#what-id-do-with-three-more-weeks) · [layout](#repository-layout)
 
 ---
 
@@ -232,6 +233,32 @@ those four is on a clock: the DMA serves daily AIS on a rolling ~18-month window
 
 ---
 
+## The same boundary, twice
+
+Compose gets the air gap from one flag — `internal: true`, no route to misconfigure. Kubernetes
+has no such flag: a pod network is routable by default and every pod can reach the internet until
+something says otherwise. So the claim is made a second time, as a default-deny egress
+NetworkPolicy in a Helm chart, and **proved in both directions from the same pod seconds apart**:
+
+```
+a. policy deleted    egress to https://example.com   reached
+b. policy applied    egress to https://example.com   blocked
+                     qdrant inside the namespace     reached
+```
+
+The negative control is the evidence, not decoration. A cluster with no route out would report
+"blocked", and so would a CNI that accepts the policy and ignores it — which is exactly what
+kind's default CNI does. Hence k3s, which enforces out of the box. `make k8s-proof` fails loudly
+if step (a) comes back blocked, because at that point nothing after it means anything.
+
+The host needs no `kubectl`, no `helm` and no `k3s`: the cluster is a container, kubectl lives
+inside it, helm runs from an image. And the images arrive as the same per-image tarballs
+`make bundle` already writes — the bundle and an offline cluster want the identical artifact.
+
+**The policy, the negative control, and the one way this boundary is weaker than compose's → [docs/kubernetes.md](docs/kubernetes.md)**
+
+---
+
 ## Design decisions
 
 | Choice | Reason |
@@ -247,6 +274,7 @@ those four is on a clock: the DMA serves daily AIS on a rolling ~18-month window
 | A shoreline is a fourth provisioning input | Weights, documents, granules — and now GSHHG. The detector's own land mask structurally cannot separate a 100 m skerry from a 100 m hull, so an air-gapped deployment genuinely has to ship a coastline with it. Saying that is a better answer to "what does this need bundled" than pretending the list was three items long. |
 | A committed manifest, gitignored bytes | `data/sources.yaml` carries a URL, a size and a sha256 for every external input; `data/` carries none of them. The fetchers verify against it and refuse a mismatch, so "the numbers in this README" and "the bytes on your disk" are the same claim. It is also what makes the two data fetchers auditable rather than trusted: a reviewer can check what they are pointed at without running them. |
 | The bundler is Go, and the manifest is the first member | A static `CGO_ENABLED=0` binary is *why* Go is here rather than a sixth Python entry point: the thing that unpacks an air-gapped bundle cannot itself need a Python environment to exist first, and `make bundle-proof` runs it inside a `docker:dind` container that has no Python and no Go in order to show that rather than assert it. The host needs no Go either — it is built in `golang:1.26-alpine` and copied out, the way `make test` runs pytest in a container. Putting `MANIFEST.json` first is what makes `verify` one sequential pass: no seeking, no staging, one megabyte of memory across 18 GB, so a bundle can be checked on a pipe as it comes off the medium. The cost lands on `create`, which must read everything before it can write the first member — the right side to put it on, since create runs once per bundle and verify runs every time one moves. |
+| k3s over kind, and a negative control over an assertion | **kind's default CNI accepts a NetworkPolicy and does not enforce it.** The object is created, `kubectl get networkpolicy` lists it, and every pod still reaches the internet — so a proof built on kind without swapping the CNI would have passed while demonstrating the opposite of its claim. k3s ships kube-router's policy controller and enforces out of the box, and is closer to what an edge site actually runs; measured, a cluster is Ready about eight seconds after `docker run`. The same reasoning produced the shape of the proof: it reaches the internet with the policy deleted *before* it fails to reach it with the policy applied, because either half alone is consistent with a cluster that simply has no route out. |
 | TPS over polynomial GCP fit | Measured on a real granule: polynomial leaves 40 m mean / 185 m worst-case geolocation error, TPS leaves 0.000 m. 15× slower on a cost of 0.15 s per 20,000 points. |
 | GRD not SLC | Vessel detection needs amplitude only. Phase is for interferometry, which is out of scope. |
 | Agent as a one-shot, not a service | It runs to a human gate and halts. It has nothing to serve between invocations, so a daemon wrapper would exist only to satisfy a healthcheck. |
@@ -358,6 +386,18 @@ Stated before being asked, because each one was tested rather than assumed.
 - **A genuinely cold `make pull-models` is still untested** — a long-standing gap unchanged by
   any of this. The bundle routes around it — a site restoring from one never runs the pull path — so
   the gap is now less likely to be hit and exactly as real as it was.
+- **The Kubernetes boundary is weaker than the compose one, in one nameable way.** A pod under the
+  chart's default-deny egress policy still *resolves* an external name — CoreDNS sits in
+  `kube-system`, outside the policy, and forwards upstream — and is then refused the connection.
+  Compose fails earlier and harder: the name never resolves and no packet is ever sent. Restricting
+  CoreDNS's own egress was tried and broke in-cluster service resolution, so it is not shipped. On a
+  real site with no reachable upstream resolver the difference disappears by itself, which is true
+  and is not the same as having demonstrated it.
+- **`make k8s-proof` does not exercise ollama or the 6.2 GB of granules and corpus.** Both are in
+  the chart; neither changes whether an egress rule is enforced, and moving 13 GB of weights to
+  make a point about a firewall rule is how a proof becomes something nobody runs. The chart gives
+  `/app/data` an `emptyDir`, so a cluster deployment starts and the tools that read pixels have
+  nothing to read until a volume is populated from the transfer bundle.
 - **Dark ≠ guilty.** See the framing at the top.
 
 **Related work.** Magalhães, Falcão & Barbosa (2025), IST Lisbon — Sentinel-2 optical vessel
@@ -410,7 +450,10 @@ docker-compose.yml        the enclave — one internal network, no egress
 .mcp.json                 the MCP attach, committed — clone and Claude Code has the tools
 docker/                   application image (runtime · fetcher · dev), postgis init
   Dockerfile.bundler      golang:1.26-alpine -> scratch; the host never needs Go
-scripts/                  preflight, the five proofs, the demo, its pacing and its check
+scripts/                  preflight, the six proofs, the demo, its pacing and its check
+deploy/
+  helm/nightglass/        the enclave as a chart; templates/networkpolicy.yaml is the point
+  values-proof.yaml       what `make k8s-proof` overrides, and therefore does not exercise
 bundler/                  Go. the offline transfer bundle — a second language, on purpose
   cmd/bundle/main.go      nightglass-bundle create|verify|restore|inspect
   internal/manifest/      the manifest, and every way it can be internally incoherent
@@ -465,7 +508,7 @@ data/
 docs/
   NOTES.md                decisions, corrections, measurements — the numbered findings
   air-gap.md · rag.md · detection.md · agent.md · tools.md · bundle.md
-                          the deep dives the sections above summarise
+  kubernetes.md           the deep dives the sections above summarise
   design/                 the bundler's design, written before it was built
   how-it-works.svg · architecture.svg · agent-graph.svg    the diagrams
   demo.cast · demo.mp4 · demo.gif    the walkthrough: record, watch, embed

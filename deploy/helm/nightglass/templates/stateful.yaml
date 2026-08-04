@@ -1,0 +1,138 @@
+{{- $root := . -}}
+{{- range $svc := list "postgis" "qdrant" "ollama" }}
+{{- if index $root.Values.components $svc }}
+{{- $res := index $root.Values.resources $svc }}
+{{- $pv := index $root.Values.persistence $svc }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "nightglass.name" $root }}-{{ $svc }}
+  labels:
+    {{- include "nightglass.labels" $root | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ $pv.size }}
+  {{- with $root.Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "nightglass.labels" $root | nindent 4 }}
+spec:
+  # No NodePort and no LoadBalancer anywhere in this chart. The compose enclave
+  # publishes no port and is reached with `docker compose exec`; the cluster
+  # equivalent is `kubectl exec`. A ClusterIP is reachable from inside the
+  # namespace and from nowhere else, which is the same posture.
+  type: ClusterIP
+  selector:
+    {{- include "nightglass.selector" $root | nindent 4 }}
+    nightglass/component: {{ $svc }}
+  ports:
+    - name: tcp
+      port: {{ if eq $svc "postgis" }}5432{{ else if eq $svc "qdrant" }}6333{{ else }}11434{{ end }}
+      targetPort: {{ if eq $svc "postgis" }}5432{{ else if eq $svc "qdrant" }}6333{{ else }}11434{{ end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nightglass.name" $root }}-{{ $svc }}
+  labels:
+    {{- include "nightglass.labels" $root | nindent 4 }}
+    nightglass/component: {{ $svc }}
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: all three own a ReadWriteOnce volume, and a
+  # rolling update would deadlock waiting for a second pod to attach a disk the
+  # first one still holds.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "nightglass.selector" $root | nindent 6 }}
+      nightglass/component: {{ $svc }}
+  template:
+    metadata:
+      labels:
+        {{- include "nightglass.labels" $root | nindent 8 }}
+        nightglass/component: {{ $svc }}
+    spec:
+      # See the note in app.yaml — service-link env vars collide with the
+      # application's own settings. Off everywhere, for consistency and because
+      # nothing in this chart resolves a peer any way but by DNS.
+      enableServiceLinks: false
+      containers:
+        - name: {{ $svc }}
+          image: {{ index $root.Values.image $svc }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          resources:
+            {{- toYaml $res | nindent 12 }}
+          {{- if eq $svc "postgis" }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ $root.Values.postgres.db | quote }}
+            - name: POSTGRES_USER
+              value: {{ $root.Values.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nightglass.name" $root }}-postgres
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          ports: [{containerPort: 5432}]
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ $root.Values.postgres.user | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          {{- else if eq $svc "qdrant" }}
+          ports: [{containerPort: 6333}]
+          readinessProbe:
+            tcpSocket: {port: 6333}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: data
+              mountPath: /qdrant/storage
+          {{- else }}
+          env:
+            - name: OLLAMA_HOST
+              # The bind address, not a URL. Compose learned this the hard way:
+              # ollama serve reads OLLAMA_HOST as what to bind and every client
+              # reads it as what to connect to, and handing the server a
+              # hostname makes it try to bind a name it does not own.
+              value: "0.0.0.0:11434"
+            - name: OLLAMA_NO_CLOUD
+              value: {{ $root.Values.env.OLLAMA_NO_CLOUD | quote }}
+            - name: OLLAMA_KEEP_ALIVE
+              value: "-1"
+          ports: [{containerPort: 11434}]
+          readinessProbe:
+            exec: {command: ["ollama", "list"]}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /root/.ollama
+          {{- if $root.Values.gpu.enabled }}
+          # Merged into the resource block above by the scheduler; declared
+          # separately here because it is the one limit that is a device rather
+          # than a ceiling.
+          {{- end }}
+          {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "nightglass.name" $root }}-{{ $svc }}
+{{- end }}
+{{- end }}

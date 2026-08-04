@@ -355,5 +355,32 @@ restore-bundle: bundler  ## verify a bundle, then load it into docker and this c
 	  --install --repo .
 
 .PHONY: bundle-proof
-bundle-proof:  ## §M7 end to end: create, verify, four refusals, restore into a clean daemon
+bundle-proof:  ## the bundle end to end: create, verify, four refusals, restore into a clean daemon
 	@scripts/bundle-proof.sh
+
+##@ Kubernetes  (M7)
+
+# The same boundary in a second substrate. Compose gets it from `internal:
+# true`; a cluster has no such flag, and a pod network is routable by default,
+# so the NetworkPolicy in the chart is the thing doing the work.
+#
+# The host needs no kubectl, no helm and no k3s: the cluster is a container,
+# kubectl lives inside it, and helm runs from an image — the same argument the
+# Go bundler makes, applied to a second toolchain.
+CHART   := deploy/helm/nightglass
+HELMIMG := alpine/helm:3.16.3
+HELM     = docker run --rm -v "$(CURDIR)/$(CHART):/chart:ro" \
+             -v "$(CURDIR)/deploy:/deploy:ro" $(HELMIMG)
+
+.PHONY: k8s-lint
+k8s-lint:  ## helm lint the chart, in a container
+	$(HELM) lint /chart -f /deploy/values-proof.yaml
+
+.PHONY: k8s-render
+k8s-render:  ## render the chart to stdout — read the NetworkPolicy without a cluster
+	@$(HELM) template ng /chart -f /deploy/values-proof.yaml --namespace $(or $(NS),nightglass)
+
+.PHONY: k8s-proof
+k8s-proof:  ## the air gap, enforced in Kubernetes: reachable without the policy, blocked with it
+	@# KEEP=1 leaves the cluster up for poking at afterwards.
+	@scripts/k8s-proof.sh

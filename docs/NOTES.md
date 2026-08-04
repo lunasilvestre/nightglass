@@ -4,6 +4,97 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
+## M7 item 2 — done 2026-08-04. The air gap, made twice, and proved against a control.
+
+The k3s/kind deploy. Taken second because the handover argued the NetworkPolicy is the best single
+detail on the list — it is the Kubernetes expression of what `internal: true` expresses in
+compose, and showing one boundary in two substrates is a stronger claim than showing it in one.
+
+`deploy/helm/nightglass/`, thirteen objects, `make k8s-proof` in about 4½ minutes. The host needs
+no kubectl, no helm and no k3s: the cluster is a container, kubectl lives inside it, helm runs
+from an image. Same argument the bundler makes about Go, applied to a second toolchain, and
+`scripts/preflight.sh` gained no line for either.
+
+**The images come from the bundler's tars.** `docker save <image> | ctr -n k8s.io images import -`
+is the same per-image artifact `make bundle` already writes. The bundle and an offline cluster
+want the identical thing, which is most of the argument for having taken these two in this order.
+
+### 61. ⭐⭐ A blocked egress test is not evidence. The negative control is.
+
+`make k8s-proof` reaches the internet **with the policy deleted**, then fails to reach it with the
+policy applied — same pod, same cluster, seconds apart — and refuses to continue if the first half
+comes back blocked.
+
+That ordering is not ceremony. "Egress is blocked" is equally consistent with three worlds: the
+policy works, the cluster has no route out anyway, or the CNI accepted the object and ignores it.
+Only the pair distinguishes them.
+
+The third case is real and is why this is k3s. **kind's default CNI does not implement
+NetworkPolicy.** The object is accepted, `kubectl get networkpolicy` lists it, and every pod still
+reaches the internet. A proof built on kind without swapping the CNI would have passed while
+demonstrating the opposite of its claim — and it would have looked exactly like this one.
+
+Measured: k3s is `Ready` about **8 seconds** after `docker run`, and enforces via kube-router with
+no CNI work at all.
+
+Same family as finding 55 and finding 21. An automated check that only ever observes the expected
+outcome is measuring its own plumbing.
+
+### 62. ⭐ The two boundaries fail differently, and the Kubernetes one is weaker
+
+| | compose, `internal: true` | Kubernetes NetworkPolicy |
+|---|---|---|
+| what fails | name resolution | the connection |
+| observed | `curl: (6) Could not resolve host` | `curl: (7) Failed to connect to 104.20.23.154` |
+| left the pod | nothing, ever | the DNS query did |
+
+A pod under the policy still resolves `example.com` to a real address, because CoreDNS is in
+`kube-system`, outside the policy, and forwards upstream. The proof prints the resolved address
+rather than hiding it.
+
+**The obvious fix does not work.** A second policy restricting CoreDNS egress to the cluster CIDRs
+broke in-cluster service resolution — external names kept answering from its 30 s cache while
+`svc.cluster.local` stopped resolving. Not shipped. And the naive "allow RFC1918, deny public"
+idiom would not have closed it either: the upstream resolver here is `192.168.8.1`, the host's own
+LAN router, which is RFC1918.
+
+What closes it is the deployment. A real air-gapped site has no reachable upstream resolver, so
+CoreDNS's forward fails and external names do not resolve. The gap measured here is an artifact of
+proving this on a networked laptop rather than a property of the design — which is a fair thing to
+say and still not the same as having demonstrated it, so it is in Limitations as well.
+
+### 63. Kubernetes injects env vars that collide with application settings
+
+Every pod died in pydantic validation before starting:
+
+```
+QDRANT_PORT  Input should be a valid integer,
+             unable to parse 'tcp://10.43.14.154:6333'
+```
+
+Kubernetes injects Docker-links-era variables for every service in the namespace — a service named
+`qdrant` produces `QDRANT_PORT=tcp://ip:port`. The application has its own `QDRANT_PORT` setting
+and wants an integer, so the injected value wins and nothing starts.
+
+`enableServiceLinks: false` is the fix and also the better posture: nothing in the chart resolves a
+peer any way but by DNS from the ConfigMap, and an enclave pod should not carry environment
+nothing asked for. **The naming collision is invisible until a service name happens to match a
+config key**, and it will happen again to anyone whose settings are named after the services they
+point at.
+
+### 64. A probe that uses a tool the image lacks reports a working boundary
+
+The first version of the proof probed with `wget`. The application image does not have `wget` — it
+has `curl`, deliberately, because the compose air-gap proof is literally
+`curl -m 5 https://example.com`. The exec failed for reasons unrelated to the network and the
+probe dutifully reported `blocked`.
+
+**An absent tool looks exactly like an enforced policy.** Finding 61's negative control is the only
+reason this surfaced in minutes: the control asserted the internet must be reachable with the
+policy off, and it was not, so the run stopped and said so instead of reporting a pass.
+
+---
+
 ## M7 item 1 — done 2026-08-04. A bundle that refuses, and a size budget that was wrong.
 
 §M7's first item, the Go bundler. Taken because it is the only one that adds a language and

@@ -1,0 +1,119 @@
+# NIGHTGLASS — Helm values.
+#
+# Defaults describe the full enclave. `make k8s-proof` overrides a few of them
+# to stand up the light half of the stack in about a minute; the overrides it
+# uses are in deploy/values-proof.yaml, so what the proof exercises and what
+# the chart claims are both readable side by side.
+
+nameOverride: ""
+
+image:
+  # No registry, and no `latest`. An air-gapped cluster has nothing to pull
+  # from: images arrive as tarballs and are imported into containerd, which is
+  # exactly what `make bundle` already emits (one tar per image). The tags here
+  # must match the ones in bundler/cmd/bundle/main.go's defaultImages, or an
+  # import will land an image nothing references.
+  pullPolicy: Never
+  app: nightglass/app:dev
+  ollama: ollama/ollama:0.32.5
+  postgis: postgis/postgis:17-3.5
+  qdrant: qdrant/qdrant:v1.18.3
+
+# The air gap. Everything below is the reason this chart exists.
+networkPolicy:
+  enabled: true
+
+  # Egress to anything outside the namespace is denied. The two exceptions are
+  # the minimum a pod needs to be a pod at all:
+  #
+  #   sameNamespace  api -> ollama, api -> postgis, api -> qdrant. Without it
+  #                  the enclave cannot talk to itself.
+  #   dns            CoreDNS in kube-system, port 53. Without it nothing
+  #                  resolves, including in-cluster service names.
+  #
+  # There is deliberately NO allowance for the API server, a registry, an
+  # object store or a proxy. If one is ever added, it belongs here where it can
+  # be seen, not in a pod annotation.
+  allowSameNamespace: true
+  allowDNS: true
+  dnsNamespace: kube-system
+
+  # Ingress is left alone. The compose enclave publishes no port and is reached
+  # with `docker compose exec`; the cluster equivalent is `kubectl exec`, so
+  # there is no inbound path to constrain that constraining would make safer.
+  # Saying so beats an empty ingress rule that looks like a decision.
+
+# Resource limits. A request the scheduler can honour and a limit that makes
+# the failure a pod eviction rather than a node falling over.
+resources:
+  api:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits:   {cpu: "2",  memory: 2Gi}
+  mcp:
+    requests: {cpu: 50m,  memory: 128Mi}
+    limits:   {cpu: "1",  memory: 1Gi}
+  qdrant:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits:   {cpu: "1",  memory: 2Gi}
+  postgis:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits:   {cpu: "2",  memory: 2Gi}
+  ollama:
+    # No CPU limit. Token generation is the one thing here that legitimately
+    # wants every core it can get, and a CPU limit on an inference server buys
+    # a throttled model rather than a protected node. Memory is capped because
+    # a runaway there takes the node with it.
+    requests: {cpu: "1", memory: 8Gi}
+    limits:   {memory: 24Gi}
+
+persistence:
+  # Sizes follow what the volumes actually hold on the compose deployment:
+  # ~10.15 GB of model blobs, and databases that are small by comparison.
+  ollama:  {enabled: true, size: 16Gi}
+  postgis: {enabled: true, size: 8Gi}
+  qdrant:  {enabled: true, size: 8Gi}
+  storageClass: ""
+
+# GPU. Off by default because the proof runs on whatever CI has, and a chart
+# that will not install without an nvidia device plugin is a chart nobody can
+# try. The compose deployment reserves a GPU; a real site turns this on.
+gpu:
+  enabled: false
+  count: 1
+
+# Which components to install. The proof turns ollama off — 10 GB of weights
+# is not something to move to make a point about a firewall rule.
+components:
+  api: true
+  mcp: true
+  postgis: true
+  qdrant: true
+  ollama: true
+
+env:
+  NIGHTGLASS_AOI: kattegat
+  OLLAMA_CHAT_MODEL: qwen2.5:14b-instruct-q4_K_M
+  OLLAMA_EMBED_MODEL: bge-m3
+  NIGHTGLASS_MIN_LENGTH_M: "15.0"
+
+# The AOIs, by name. `NIGHTGLASS_AOI` above selects one of these; the image's
+# entrypoint runs settings.describe() before anything else and exits non-zero
+# if the selected name has no bbox, so a chart that ships the name without the
+# definition produces a CrashLoopBackOff at install time rather than a wrong
+# answer later. That is the right failure, and it is why these live here rather
+# than being assumed present.
+aoi:
+  AOI_LISBON_BBOX: "-10.5,38.0,-8.5,39.5"
+  AOI_LEIXOES_BBOX: "-9.8,40.9,-8.6,41.6"
+  AOI_KATTEGAT_BBOX: "10.5,55.5,12.5,57.5"
+  # Set OLLAMA_NO_CLOUD for the same reason compose does: ollama 0.32.5 ships
+  # cloud model routing and a recommendations refresh, and the network policy
+  # should not be the only thing standing between it and ollama.com.
+  OLLAMA_NO_CLOUD: "true"
+
+postgres:
+  db: nightglass
+  user: nightglass
+  # Not a default worth having. `make k8s-install` requires it to be set, the
+  # same way .env does for compose.
+  password: ""

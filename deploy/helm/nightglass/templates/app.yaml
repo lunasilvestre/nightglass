@@ -1,0 +1,120 @@
+{{- $root := . -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "nightglass.name" . }}-postgres
+  labels:
+    {{- include "nightglass.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  password: {{ required "postgres.password must be set — there is no default worth having" .Values.postgres.password | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nightglass.name" . }}-env
+  labels:
+    {{- include "nightglass.labels" . | nindent 4 }}
+data:
+  NIGHTGLASS_AOI: {{ .Values.env.NIGHTGLASS_AOI | quote }}
+  NIGHTGLASS_MIN_LENGTH_M: {{ .Values.env.NIGHTGLASS_MIN_LENGTH_M | quote }}
+  OLLAMA_CHAT_MODEL: {{ .Values.env.OLLAMA_CHAT_MODEL | quote }}
+  OLLAMA_EMBED_MODEL: {{ .Values.env.OLLAMA_EMBED_MODEL | quote }}
+  {{- range $k, $v := .Values.aoi }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+  OLLAMA_HOST: "http://ollama:11434"
+  QDRANT_URL: "http://qdrant:6333"
+  POSTGRES_HOST: "postgis"
+  POSTGRES_DB: {{ .Values.postgres.db | quote }}
+  POSTGRES_USER: {{ .Values.postgres.user | quote }}
+{{- range $svc := list "api" "mcp" }}
+{{- if index $root.Values.components $svc }}
+{{- $res := index $root.Values.resources $svc }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "nightglass.labels" $root | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "nightglass.selector" $root | nindent 4 }}
+    nightglass/component: {{ $svc }}
+  ports:
+    - name: http
+      port: {{ if eq $svc "api" }}8000{{ else }}8001{{ end }}
+      targetPort: {{ if eq $svc "api" }}8000{{ else }}8001{{ end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nightglass.name" $root }}-{{ $svc }}
+  labels:
+    {{- include "nightglass.labels" $root | nindent 4 }}
+    nightglass/component: {{ $svc }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "nightglass.selector" $root | nindent 6 }}
+      nightglass/component: {{ $svc }}
+  template:
+    metadata:
+      labels:
+        {{- include "nightglass.labels" $root | nindent 8 }}
+        nightglass/component: {{ $svc }}
+    spec:
+      # Kubernetes injects a Docker-links-era env var for every service in the
+      # namespace: a service named `qdrant` produces QDRANT_PORT, and its value
+      # is `tcp://10.43.14.154:6333`. The application already has a setting
+      # called QDRANT_PORT and expects an integer, so the injected variable
+      # wins and every pod dies in pydantic validation before it starts.
+      #
+      # Nothing here uses service links — the code resolves peers by DNS name
+      # from the ConfigMap — so turning them off is both the fix and the right
+      # posture: fewer things injected into an enclave pod that nothing asked
+      # for. Found by a CrashLoopBackOff that named the variable, which is the
+      # only reason it took minutes rather than an afternoon.
+      enableServiceLinks: false
+      containers:
+        - name: {{ $svc }}
+          image: {{ $root.Values.image.app }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          {{- if eq $svc "api" }}
+          command: ["uvicorn", "nightglass.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+          ports: [{containerPort: 8000}]
+          {{- else }}
+          command: ["nightglass-mcp", "sse", "--host", "0.0.0.0", "--port", "8001"]
+          ports: [{containerPort: 8001}]
+          {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "nightglass.name" $root }}-env
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nightglass.name" $root }}-postgres
+                  key: password
+          resources:
+            {{- toYaml $res | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        # An emptyDir, and this is the chart's most important caveat.
+        #
+        # The compose enclave bind-mounts 6.2 GB of granules, AIS and corpus
+        # read-only from the host. A cluster has no host to bind from. A real
+        # deployment gives this a ReadOnlyMany volume populated from the
+        # transfer bundle — `nightglass-bundle restore` writes exactly that
+        # tree — and until it does, the tools that read pixels have nothing to
+        # read. What runs without it is the boundary, the services and their
+        # wiring, which is what this chart is here to express.
+        - name: data
+          emptyDir: {}
+{{- end }}
+{{- end }}

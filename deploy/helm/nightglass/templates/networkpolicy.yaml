@@ -1,0 +1,58 @@
+{{- if .Values.networkPolicy.enabled }}
+# The air gap, in Kubernetes.
+#
+# docker-compose.yml gets this from one flag — `internal: true` on the enclave
+# network — and the argument there is that Docker attaches no default route and
+# no NAT rule, so there is no path to the internet to misconfigure. Kubernetes
+# has no such flag. A pod network is routable by default and every pod can
+# reach the internet unless something says otherwise. This is that something.
+#
+# An empty podSelector selects EVERY pod in the namespace, and naming Egress in
+# policyTypes with a rule list that excludes the internet is what makes the
+# default deny. The two allowances below are the minimum a pod needs to be a
+# pod; there is deliberately nothing here for a registry, a proxy or an object
+# store, and if one is ever needed it belongs in this file where a reviewer
+# will see it.
+#
+# WHAT THIS IS NOT. The compose enclave fails with `Could not resolve host` —
+# the name never resolves and no packet is ever sent. This fails differently:
+# the name resolves and the connection is refused, because CoreDNS lives in
+# kube-system, is outside this policy, and forwards upstream. Measured on a
+# real cluster, that is the difference between the two boundaries, and it is
+# stated in docs/kubernetes.md rather than smoothed over. On a site with no
+# reachable upstream resolver the difference disappears on its own — which is
+# the point, but it is not something this policy achieves.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "nightglass.name" . }}-default-deny-egress
+  labels:
+    {{- include "nightglass.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    {{- if .Values.networkPolicy.allowSameNamespace }}
+    # The enclave talking to itself: api -> ollama, api -> postgis, api -> qdrant.
+    - to:
+        - podSelector: {}
+    {{- end }}
+    {{- if .Values.networkPolicy.allowDNS }}
+    # CoreDNS only, port 53 only. Not "the kube-system namespace" — a pod
+    # selector, so this does not quietly authorise egress to every controller
+    # that happens to share that namespace.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.dnsNamespace }}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- end }}
+{{- end }}

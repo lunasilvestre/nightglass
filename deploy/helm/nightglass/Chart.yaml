@@ -1,0 +1,16 @@
+apiVersion: v2
+name: nightglass
+description: >-
+  The enclave, expressed in Kubernetes. The load-bearing object is
+  templates/networkpolicy.yaml — a default-deny egress policy that is the
+  cluster's version of docker-compose's `internal: true`.
+type: application
+
+# The chart's version, and the application's. They move independently: the
+# chart can gain a resource limit without the application changing at all.
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords: [sar, air-gapped, vessel-detection]
+home: https://github.com/lunasilvestre/nightglass
+sources: [https://github.com/lunasilvestre/nightglass]

@@ -45,5 +45,10 @@ bundle-restore/
 bundler/bin/
 
 # --- local tooling --------------------------------------------------------
+# Claude Code's per-machine permission allowlist. It accumulates absolute paths
+# from whoever ran the session, so it is local by construction. A committed
+# `.claude/settings.json` would be a different thing and is deliberately not
+# covered by this rule.
+.claude/settings.local.json
 .DS_Store
 *.log
