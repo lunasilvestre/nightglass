@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import csv
 import io
+import sys
 import zipfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
@@ -44,6 +45,15 @@ from nightglass.spatial.geodesy import KNOTS_TO_MS
 # happens on this key, before anything downstream sees a position, because
 # duplicate-weighted nearest-in-time logic is distorted by it.
 DEDUP_KEY = ("mmsi", "timestamp", "lat", "lon")
+
+#: DMA's "Type of mobile" column, restricted to the ones that are a *vessel*.
+#: The feed also carries `Base Station` (shore transmitters, 5.5% of rows in the
+#: Kattegat window) and `AtoN` (aids to navigation — buoys, beacons, platforms).
+#: Neither is a ship, and letting one match a detection would report a hull that
+#: turned out to be a navigation buoy as a vessel that had declared itself. The
+#: right treatment for a fixed installation is to exclude it as a *vessel* and
+#: deal with it as structure; matching it is the one option that is wrong.
+VESSEL_CLASSES = frozenset({"Class A", "Class B"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,14 +106,25 @@ class NotConfigured(RuntimeError):
 
 
 def _parse_dma_row(row: list[str], source: str) -> AisPosition | None:
-    """One DMA CSV row, or None if it is unusable.
+    """One DMA CSV row as a **vessel** position, or None if it is not one.
 
     The schema was verified against the real file during pre-dev: 26
     comma-separated fields, the first column literally named ``# Timestamp``
     (hash included), dates ``%d/%m/%Y``, and lat/lon written with decimal
     **points** despite the DMA README's decimal-comma prose examples.
+
+    Column 1 is "Type of mobile" and it is a filter, not a label — see
+    `VESSEL_CLASSES`. This was found by M6 rather than designed: the acquisition
+    window used through M3–M5 was a CSV cut by hand during pre-dev, and that cut
+    had silently kept only Class A and Class B. Reading the same window out of
+    the daily file the way the code actually does it produced 7,857 extra rows
+    of base stations and navigation aids. The hand cut was right and the code
+    was wrong, and nothing would have said so until someone reproduced the
+    demo from the manifest.
     """
     try:
+        if row[1] not in VESSEL_CLASSES:
+            return None
         stamp = datetime.strptime(row[0], "%d/%m/%Y %H:%M:%S").replace(tzinfo=UTC)
         lat, lon = float(row[3]), float(row[4])
     except (ValueError, IndexError):
@@ -333,3 +354,84 @@ def acquisition_window(centre: datetime, minutes: float) -> tuple[datetime, date
     """
     delta = timedelta(minutes=minutes)
     return centre - delta, centre + delta
+
+
+# -- provisioning (ONLINE upstream, offline here) -----------------------------
+
+
+def slice_path(root: str | Path, aoi: str, start: datetime, end: datetime) -> Path:
+    """The slice's name, derived from what is in it rather than chosen."""
+    return Path(root) / f"ais_{aoi.lower()}_{start:%Y%m%d}_{start:%H%M}-{end:%H%M}.csv"
+
+
+def slice_day(
+    day_file: str | Path,
+    out: str | Path,
+    bbox: BBox,
+    start: datetime,
+    end: datetime,
+    *,
+    progress: bool = True,
+) -> tuple[int, int]:
+    """Cut the acquisition window out of a DMA daily file. Returns (kept, scanned).
+
+    A daily file is ~24 M rows and the window is ~20 minutes of it — 0.6%. The
+    matcher can read the zip directly and does, but it reads it *twice* (once for
+    `load-ais`, once for `validate-shift`), and each pass costs a full scan of
+    5.45 GB of CSV. Cutting the slice once at provisioning time is the same
+    trade as clipping the coastline online: do the expensive filtering where the
+    input already is, and let the enclave mount only what its AOI needs.
+
+    Rows are copied **verbatim**, including the multi-station duplicates that
+    make up 71% of the raw feed. Deduplication belongs to `DMAFileSource`, which
+    is what reads this file back, and a slice that had already deduplicated
+    would be a different input silently pretending to be the same one.
+    """
+    day_file, out = Path(day_file), Path(out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    # The cheap path: one day, so the date is constant and `HH:MM:SS` orders
+    # lexicographically. That skips `strptime` on ~99% of rows, which is the
+    # difference between a two-minute slice and a ten-minute one. A window that
+    # crosses midnight cannot use it, so it falls back to parsing every row.
+    same_day = start.strftime("%d/%m/%Y") == end.strftime("%d/%m/%Y")
+    day, lo, hi = start.strftime("%d/%m/%Y"), start.strftime("%H:%M:%S"), end.strftime("%H:%M:%S")
+
+    source = DMAFileSource(day_file)
+    kept = scanned = 0
+    tty = progress and sys.stdout.isatty()
+    tmp = out.with_suffix(".part")
+    with tmp.open("w", encoding="utf-8", newline="") as fh:
+        # `\n`, not csv's `\r\n` default: the DMA file is LF and the slice is a
+        # cut of it, so a re-encoded line ending would make a byte-level diff
+        # against the source report every row as changed.
+        writer = csv.writer(fh, lineterminator="\n")
+        # `_rows`, not `positions`: this is a byte-level cut of the file and must
+        # not parse, dedup or reorder anything on the way through.
+        for row in source._rows():
+            scanned += 1
+            if progress and scanned % 2_000_000 == 0:
+                line = f"   scanned {scanned / 1e6:5.1f} M rows, kept {kept:,}"
+                print(f"\r{line}" if tty else line, end="" if tty else "\n", flush=True)
+            if not row or row[0].startswith("#"):
+                continue
+            stamp = row[0]
+            if same_day:
+                if stamp[:10] != day or not (lo <= stamp[11:19] <= hi):
+                    continue
+            else:
+                pos = _parse_dma_row(row, source.name)
+                if pos is None or not (start <= pos.timestamp <= end):
+                    continue
+            try:
+                lat, lon = float(row[3]), float(row[4])
+            except (ValueError, IndexError):
+                continue
+            if not (bbox.min_lon <= lon <= bbox.max_lon and bbox.min_lat <= lat <= bbox.max_lat):
+                continue
+            writer.writerow(row)
+            kept += 1
+    if tty:
+        print(f"\r   scanned {scanned / 1e6:5.1f} M rows, kept {kept:,}      ")
+    tmp.rename(out)
+    return kept, scanned

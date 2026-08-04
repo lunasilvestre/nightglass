@@ -4,6 +4,185 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
+## M6 — done 2026-08-04. A clone can now reproduce it, and reproducing it found a bug.
+
+`make fetch-granules` and `make fetch-ais` were the last two things standing between this
+repository and *reproducible*. Everything else already had a provisioning step; the granules and
+the Danish AIS day had been staged by hand during pre-dev, and `data/` is gitignored, so every
+number in the README was true and none of it could be regenerated anywhere but here.
+
+### 50. ⭐⭐⭐ The acquisition-window CSV had a rule in it that the code did not have
+
+The strongest argument for building the fetchers is what happened the first time the fetched
+data was used instead of the hand-staged data.
+
+`data/interim/ais_kattegat_20260717_0513-0534.csv` was cut by hand during pre-dev. `fetch-ais`
+cuts the same window out of the same daily file the way `DMAFileSource` actually reads it — and
+got **10,230 more rows and 11 more MMSIs** over an identical bbox and clock window. Broken down
+by DMA's "Type of mobile" column:
+
+```
+                new slice   hand-made slice
+  Class A         104,590           102,660
+  Class B          30,239            29,796
+  Base Station      7,630                 0     <-- shore transmitters
+  AtoN                227                 0     <-- buoys, beacons, platforms
+```
+
+The hand cut had silently kept only Class A and Class B. **The code had no such rule.** So the
+matcher, run the way the repository documents, would have been free to match a detection against
+a navigation buoy or a shore station and report it as a vessel that had declared itself — the
+exact opposite of the failure the system is careful about everywhere else, and one that would
+have made dark detections *disappear* rather than appear.
+
+The fix is `VESSEL_CLASSES` in `_parse_dma_row`, not a filter in the slicer: the rule has to
+apply whether the matcher reads the slice or the 890 MB daily zip, and putting it in the slice
+would have preserved the bug for anyone who read the zip. The remaining difference between the
+two files is 23 seconds at the start of the window — the hand cut began at 05:13:00, the code's
+±11 min begins at 05:12:36 — and it changes nothing: same 35 detections, same 21 matched, same
+14 dark, same MMSIs, same distances, same 104 m median.
+
+The general form is worth keeping. **A hand-staged artifact can carry a rule nobody wrote down**,
+and it will keep carrying it until something regenerates it. Nothing in `make lint`, `make test`
+or any of the four proofs could have found this, because all of them read the same hand-made file.
+
+### 51. `data/sources.yaml` — a committed manifest is what makes the numbers traceable
+
+One file, eight entries, each with a URL, a byte count, a sha256 and a role. The fetchers verify
+against it and refuse a mismatch. Two things fell out of it that were not the point when it was
+written:
+
+- **The roles made the wrong-orbit granules useful.** `role: superseded` on the two path-23
+  scenes keeps the mistake in the record — they sat offshore in the Atlantic and missed the
+  Tagus approaches entirely — without making anyone download 1.4 GB to reproduce it. `ALL=1`
+  fetches them. It replaced two hand-written text manifests, one of which superseded half of the
+  other, which is exactly the state that makes a clone fail.
+- **The default set is 3 granules, not 6, so this machine was wrong.** Aligning the host to what
+  `make fetch-granules` actually gives changed `stac_search` over Lisbon from 3 scenes to 1 and
+  removed a caveat from the demo INTREP. Worth knowing: *the machine that builds a thing is the
+  worst place to test whether it can be built.*
+
+### 52. "We have seen this URL before" is not a redirect loop
+
+ASF's download is six hops: `datapool` → `sentinel1` → `urs.earthdata.nasa.gov/oauth/authorize`
+→ `sentinel1/login?code=…` → **the same `sentinel1` granule URL as hop 1** → signed CloudFront.
+The OAuth round-trip legitimately returns to a URL it has already visited, this time holding a
+session cookie.
+
+A first draft used URL identity as the loop guard and refused every download with a confident,
+specific and completely wrong diagnosis — "this is what an unaccepted EULA looks like" — for a
+credential whose EULA was accepted and which `curl` had just used successfully. Bounding the
+*hop count* is the guard that works. The lesson is about the shape of the error message rather
+than the guard: a wrong diagnosis stated precisely costs more than a vague one, because it sends
+the reader to check the wrong thing.
+
+Related, and deliberate: every ASF example reaches for `curl --location-trusted`, which means
+*send the password to whatever host redirects you*. `archive.py` walks the chain itself and
+attaches Basic auth only when the hop is `urs.earthdata.nasa.gov`. The signed URL at the end
+carries its own authorisation and has no use for a password.
+
+### 53. The demo shows two AOIs, and that was the decision M6 had to make
+
+§6 says record over the Lisbon AOI. The Lisbon AOI has no AIS. The options were in the M6
+handoff; the recording takes option 2, and the ordering is what makes it work: Lisbon takes the
+question and produces 71 detections **with the verdict withheld**, the corpus is asked why a
+missing transponder is a lead rather than a finding (IMO A.917(22): the master may switch AIS
+off, and must log it), a human releases the report from a different container, and only then
+does Denmark carry the claim about the matcher. The GFW cross-check answers "so what did you do
+without AIS" last.
+
+Two smaller decisions inside it:
+
+- **One recording, retimed for a viewer, and the retiming is checked.** A live capture is paced
+  for the machine, and this one had both failure modes at once: 30.5 s of frozen screen while
+  the model chose its tools, then **33 lines in a single event** — a whole 34-row screen — that
+  the next section scrolled away within a second. `scripts/pace-demo.py` rewrites timestamps and
+  nothing else; it diffs the output stream before and after and refuses to write if a byte moved.
+  The rule it enforces is the one a viewer cares about — `t[n] >= t[n-height] + 4.5 s`, so
+  nothing scrolls off the top until it has been readable — which turns "dump a screen" into a
+  scroll without anyone tuning per-section delays.
+- **The check found the bug the pacing introduced.** `check-demo.py` measures per-row dwell from
+  the timeline *and* slices the encoded video at 1 fps. It first reported a comfortable 4.5 s
+  floor over a video whose closing shot lasted one second: the 8 s tail hold had been written as
+  a trailing empty event, agg drops events with no bytes, and the arithmetic was crediting time
+  the video never had. The hold moved to `--last-frame-duration`, and the checker now takes its
+  end-of-video from `ffprobe` rather than from the cast — so the two measurements can disagree,
+  which is the only way one can catch the other.
+- **`tee /dev/stderr` reorders a script the moment stdout is not a terminal.** The agent's output
+  has to stream while it is produced, and capturing the thread id through stderr put the whole
+  transcript before the section headers as soon as the run was redirected to a file. `tee` to a
+  temp file instead.
+
+### 54. Two metrics that measured the tool instead of the thing
+
+Both found while checking the recording, and the same shape twice.
+
+**`agg --idle-time-limit` defaults to 5 seconds, not to "off".** Omitting the flag to get a
+full-fidelity render produced a 36 s file from a 62 s cast — a quarter of the recording gone
+silently, with nothing in the command to point at. Every render now passes it explicitly,
+including the one that wants no cap at all (`600`).
+
+**"How long does a frame stay identical" measures the codec.** The first version of the video
+check hashed each 1 fps sample and reported the longest identical run as 3 s over a video whose
+final shot is held for 8. H.264 is lossy: two decoded frames of a motionless screen are never
+byte-identical. Comparing against a threshold instead reports the hold correctly. A metric with
+a hard-coded notion of "the same" tends to be measuring the pipeline rather than the content.
+
+### 55. ⭐⭐ Truncation that looks like completion, in the one place it must not
+
+Watching the rendered video rather than reading its metrics found this, and
+nothing else would have. Two renderers built a tool call as
+
+```python
+f"{tool}({json.dumps(args)[:90]})"      # slice the arguments, add the paren
+```
+
+which on a real call put this on screen, in the demo:
+
+```
+1. correlate({"bbox": [-10.5, 38, -8.5, 39.5], … "min_length_m": 20, "star)
+```
+
+That is not truncated JSON, it is **plausible** JSON — balanced, syntactically
+innocent, and missing the entire time window. A reader cannot tell it from the
+truth. The system's whole argument is that a claim can be traced to what
+produced it, and the display of what produced it was quietly lying about its
+own arguments.
+
+The caveats were worse, because a caveat is the part of an INTREP that exists to
+be read in full. `[:150]` cut
+
+> NO AIS was available for this acquisition window, so none of the 71
+> detection(s) above has been assessed against AIS. They are detections, not
+> dark de‸
+
+exactly at the sentence that carries §7. The honesty mechanism was being cropped
+for width, and it had already survived three recordings and a frame-by-frame
+review because every check was measuring *timing*.
+
+Fixed by wrapping in `nightglass/display.py`, shared by both callers because
+both had the identical bug and fixing one would have left the other. Three tests
+pin it: a call round-trips to the same JSON whatever the line breaks did, a
+caveat round-trips to the same sentence, and an identifier is never split across
+a line — a `det-…` id broken in half stops being greppable, which is most of
+what an id is for.
+
+**The general form.** Every automated check here passed on the broken output.
+Dwell time, screen churn, byte-identity of the paced cast — all green, all
+measuring the transport. What was wrong was *the content of a line*, and the
+only instrument that reads that is a person looking at it. Metrics say whether
+you can see it; they do not say whether it is true.
+
+### 56. The English conversion missed the Makefile
+
+Finding 48 recorded the switch to English. `make help` was still offering
+`make ask Q="Houve alguma...?"` a milestone later, along with two other targets and two module
+docstrings, because the sweep went through templates, prompts and corpus and not through the
+target descriptions. Grep for the *content* — the same lesson as the bilingual `REFUSAL_TEXT`,
+in a file nobody thought of as carrying user-facing text.
+
+---
+
 ## Post-M5 — English throughout
 
 ### 48. Removing a second language removed a demonstration, and the honest move was to say so
@@ -246,7 +425,41 @@ outside the model's reach rather than instructing it harder.
 
 ---
 
-## → HANDOFF TO M6 (read this first in a fresh session)
+## → HANDOFF TO M7 (read this first in a fresh session)
+
+**M0–M6 are done.** The full brief is `docs/HANDOVER_M7.md`; this is the part that belongs in the
+decision log rather than in a prompt.
+
+`§M7` is titled "If there's appetite" and that is accurate — the spec is met and stopping here is
+a defensible end state. The four items, in the order I would take them, with the reasoning in the
+handover: **the Go bundler** (the only one that adds a language, and `data/sources.yaml` +
+`spatial/archive.py` are already half of it), **the k3s NetworkPolicy** (the same boundary
+expressed in a second substrate, and the spec calls it the best detail in the list), **the eval
+set** (cheapest, turns a sentence in Limitations into a number), **SBOM and digest pinning**.
+
+### Still open, in priority order
+
+1. **The 40% unmatched rate.** Unchanged and guarded in two places. Separating harbour structures
+   and fixed installations from vessels is the real fix. M6 moved one step toward it by accident:
+   base stations and AtoN are now excluded from the AIS side (finding 50), so what remains in the
+   40% is genuinely unexplained rather than partly buoys.
+2. **`make fetch-ais` has a shelf life.** The DMA bucket is a rolling ~18-month window. When
+   `aisdk-2026-07-17` ages out the Danish validation stops being reproducible from the manifest.
+   A bundle is the fix, which is one more argument for taking M7 item 1.
+3. **A genuinely cold `make pull-models`** — unchanged since M2. Still never run on a machine
+   without the blobs.
+4. **Citation entailment** — unchanged from M2. The refusal path catches unsupported claims, not
+   claims that cite a real chunk which does not say what the claim says.
+5. **Nothing exercises cross-language retrieval.** `bge-m3` stays as insurance; the README says
+   so rather than carrying a claim it cannot support.
+
+---
+
+## → HANDOFF TO M6 — ✅ SUPERSEDED
+
+*M6 is done: `make fetch-granules`, `make fetch-ais`, `data/sources.yaml`, `scripts/demo.sh` and
+the three demo artifacts. Kept for the reasoning it records — in particular the recording decision, which
+was taken as option 2. See findings 50–54 above.*
 
 **M0–M5 are done.** What remains is §M6: the README's architecture diagram, the design-decision
 table, the licence and limitations sections — mostly written already — and a 90-second recording.

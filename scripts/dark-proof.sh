@@ -21,7 +21,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'; YELL=$'\033[33m'
 
 SCENE=${SCENE:-/app/data/raw/sar/S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13.zip}
-AIS=${AIS:-/app/data/interim/ais_kattegat_20260717_0513-0534.csv}
+AIS=${AIS:-/app/data/interim/ais_kattegat_20260717_0453-0553.csv}
 AOI=${AOI:-kattegat}
 SCENE_ID=$(basename "${SCENE%.zip}")
 

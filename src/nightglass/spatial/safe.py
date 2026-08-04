@@ -1,7 +1,7 @@
 """Reading a Sentinel-1 GRD product, without unpacking it.
 
 Two decisions from M1's pre-dev work are baked in here, both of which save real
-time and are easy to get wrong (NOTES.md, "Two findings that save real time at
+time and are easy to get wrong (docs/NOTES.md, "Two findings that save real time at
 M3"):
 
 **Read the scene in place.** A SAFE zip is ~5.5 GB unpacked and ~900 MB on disk.
@@ -264,7 +264,7 @@ class SafeProduct:
         """The GDAL path to the measurement TIFF *inside* the zip.
 
         This is the whole "read in place" decision in one line. Verified on all
-        six granules on disk.
+        six granules in `data/sources.yaml`.
         """
         return f"/vsizip/{self.zip_path}/{self.polarization(pol).measurement}"
 

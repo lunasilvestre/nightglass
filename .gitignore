@@ -13,8 +13,7 @@
 # negations below actually work.
 data/*
 !data/.gitkeep
-!data/sar_manifest.txt
-!data/sar_manifest_pt_fix.txt
+!data/sources.yaml
 
 # --- python ---------------------------------------------------------------
 __pycache__/

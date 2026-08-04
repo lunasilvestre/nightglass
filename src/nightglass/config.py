@@ -106,7 +106,7 @@ class AOI:
     bbox: BBox
     ais_source: AisSourceName
     # Sentinel-1 overpass windows, UTC "HH:MM-HH:MM". Measured from the
-    # catalogue during pre-dev, not taken from a revisit table -- see NOTES.md.
+    # catalogue during pre-dev, not taken from a revisit table -- see docs/NOTES.md.
     # Optional: an AOI is usable without them, they just make AIS slicing exact.
     pass_descending: str | None = None
     pass_ascending: str | None = None
@@ -152,7 +152,7 @@ class AOI:
         failure mode §3.2 warns about. GFW detections are already AIS-matched
         upstream, so they are a reference layer, not an independent correlation.
 
-        Consumers should gate rate language on this. See §7 and NOTES.md.
+        Consumers should gate rate language on this. See §7 and docs/NOTES.md.
         """
         return self.ais_source == "dma"
 

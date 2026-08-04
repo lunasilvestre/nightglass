@@ -17,17 +17,64 @@ Deliberately shaped as the open-source shadow of ICEYE Ocean Vision Detect.
 > transponder failure, low-power class B sets, vessels never required to carry AIS at all. The
 > system surfaces candidates. The analyst adjudicates.
 
-**Status: M5 — the agent and its human gate.** The enclave stands up and is sealed (M0), runs inference
+**Status: M6 — packaged.** The enclave stands up and is sealed (M0), runs inference
 offline (M1), answers from a 60-document corpus with every claim traced to a retrievable chunk
 or refuses (M2), runs its own vessel detector over real Sentinel-1 pixels and correlates the
-detections against real AIS in space *and* time (M3), and serves all six `EXECUTION_SPEC.md` §5
-tools over both HTTP and MCP (M4), and runs a LangGraph agent that halts at a human gate and
-resumes in a different container (M5). Over the Danish validation AOI, 21 of 35 detections match
-a vessel that was actually there at a median 104 m, and every AIS vessel over 200 m inside the
-scene footprint is recovered. The local 14B model
+detections against real AIS in space *and* time (M3), serves all six [`EXECUTION_SPEC.md`](docs/EXECUTION_SPEC.md) §5
+tools over both HTTP and MCP (M4), runs a LangGraph agent that halts at a human gate and
+resumes in a different container (M5), and fetches every byte it needs from a checksummed
+manifest, so a clone reproduces the demo rather than reading about it (M6). Over the Danish
+validation AOI, 21 of 35 detections match a vessel that was actually there at a median 104 m,
+and every AIS vessel over 200 m inside the scene footprint is recovered. The local 14B model
 chains three tools unaided from a plain analyst question; Claude Code drives the same tools over a
-pipe from outside the enclave. What remains is packaging and the recording (M6). `NOTES.md` is
-the running decision log.
+pipe from outside the enclave. [`docs/NOTES.md`](docs/NOTES.md) is the running decision log.
+
+---
+
+## The demo
+
+![NIGHTGLASS end to end](docs/demo.gif)
+
+One command, `scripts/demo.sh`, and nothing in it is staged: the 14B model picks its own tools
+while the recording runs, and every number comes out of PostGIS and the SAR pixels as you watch.
+It takes **57 s live**, inside the spec's 90-second budget without being padded to fill it.
+
+**▶ [`docs/demo.mp4`](docs/demo.mp4)** — 4.0 MB, H.264, 49 s, play and pause. This is the one to
+watch.
+
+The video is **retimed, not re-run**. A recording made by a machine is paced for a machine, and
+this one had both failure modes at once: 30.5 s of frozen screen while the model chose its
+tools, then 33 lines — a whole 34-row screen — arriving in a single event and scrolling away
+before anyone could read them. `scripts/pace-demo.py` rewrites the timestamps and **not one byte
+of the content**; it refuses to write a file whose output stream differs from the source. Long
+waits are capped at 2.5 s so a slow step still reads as slow, and nothing is allowed to scroll
+off the top until it has been on screen for 4.5 s.
+
+That floor is measured rather than asserted. `scripts/check-demo.py` reports the dwell of every
+one of the 167 rows, and independently slices the encoded video at 1 fps to see how much of the
+screen is replaced from one second to the next:
+
+```
+per-row dwell     min 4.50 s   p05 4.50 s   median 8.81 s   max 16.48 s
+one-second slice  median 14.1% of screen replaced, p95 21.0%, max 26.1%
+```
+
+It exits non-zero if any row drops under three seconds, so `make render-demo` cannot finish on a
+video nobody can follow.
+
+The GIF above is the same paced timeline at a lower frame rate for inline viewing.
+[`docs/demo.cast`](docs/demo.cast) is the recording itself — 10 KB of JSON, untouched, real
+time — and the artifact to check the other two against (`asciinema play docs/demo.cast`).
+
+The spec says record over the Lisbon AOI. The Lisbon AOI has **no AIS**, and that is not an
+oversight — Denmark is the only European state publishing free point-level *historical* AIS,
+which is exactly why it is the validation AOI. So the recording shows both, in the order an
+analyst meets them: Lisbon takes the question and produces 71 detections with the verdict
+**withheld**, the corpus explains why a missing transponder is a lead rather than a finding, a
+human releases the report from a different container, and the claim about the matcher is then
+made over Denmark, where there is ground truth to make it against. Two AOIs on screen is also
+the config-driven argument made visible instead of asserted: nothing in the code knows which AOI
+it is serving.
 
 ---
 
@@ -61,9 +108,10 @@ the running decision log.
 
         nightglass_provision ─┬─ model-puller      ──► internet  (profile-gated;
                               ├─ corpus-fetcher    ──► internet   the ONLY services
-                              ├─ coastline-fetcher ──► internet   with egress, and
-                              └─ gfw-fetcher       ──► internet   none of them runs
-                                                                  during operation)
+                              ├─ granule-fetcher   ──► internet   with egress, and
+                              ├─ ais-fetcher       ──► internet   none of them runs
+                              ├─ coastline-fetcher ──► internet   during operation)
+                              └─ gfw-fetcher       ──► internet
 ```
 
 The boundary is one line of `docker-compose.yml`: the `enclave` network is declared
@@ -79,25 +127,35 @@ Two consequences follow, and both are deliberate:
   omitted for tidiness; they do not work. Access is `docker compose exec`, and MCP reaches
   Claude Desktop over stdio through `docker exec` rather than over a socket.
 - **Nothing inside can fetch its own inputs at runtime.** Correct, and it applies to every
-  input. Weights arrive via `model-puller` (`make pull-models`), documents via `corpus-fetcher`
-  (`make fetch-corpus`), the shoreline via `coastline-fetcher` (`make fetch-coastline`), the GFW
-  cross-check layer via `gfw-fetcher` (`make fetch-gfw`), and granules are staged onto a
-  read-only mount before the enclave is sealed. Every fetcher is a profile-gated service on the
-  `provision` network, invoked explicitly, and none is running during operation. Provisioning and
-  operation are different security postures and the compose file says so out loud rather than
-  blurring them.
+  input: weights via `model-puller`, documents via `corpus-fetcher`, the Sentinel-1 granules via
+  `granule-fetcher`, the Danish AIS day via `ais-fetcher`, the shoreline via `coastline-fetcher`,
+  the GFW cross-check layer via `gfw-fetcher`. Every one is a profile-gated service on the
+  `provision` network, invoked explicitly by a `make fetch-*` target, and none is running during
+  operation. Provisioning and operation are different security postures and the compose file says
+  so out loud rather than blurring them.
 
-  That the list is five items long and not three is itself a finding. The detector's own land
+  That the list is six items long and not three is itself a finding. The detector's own land
   mask structurally cannot separate a 100 m skerry from a 100 m hull, so a real air-gapped
   deployment has to ship a coastline with it; and validating a detector needs someone else's
   detections, so it has to ship those too. Both are clipped or filtered online — the enclave
   carries 713 KB of shoreline rather than a 149 MB archive, and 69 detections rather than a
   global layer.
 
-  Credentials follow the same split. `GFW_TOKEN` is a provider identity, so it lives in
-  `~/.config/eo-credentials.env` (chmod 600, never committed) and is forwarded to the provision
-  service by the invoking shell — never written into `.env`, and never reachable from the
-  enclave, where it would be useless anyway.
+  The two data fetchers were the last to be written, and their absence was the last thing
+  standing between this repository and *reproducible*. Granules and AIS had been staged by hand
+  during pre-dev; `data/` is gitignored; so every number below was true and none of it could be
+  regenerated anywhere but on one machine. [`data/sources.yaml`](data/sources.yaml) is the
+  committed half — a URL, a byte count and a sha256 for all eight external files — and the
+  fetchers refuse anything that hashes differently. A number you cannot trace to a byte is a
+  number you are asking to be taken on trust.
+
+  Credentials follow the same split. `GFW_TOKEN` and the Earthdata login are provider identities,
+  so they live outside the repository — `~/.config/eo-credentials.env` (chmod 600) and `~/.netrc`
+  respectively — and are forwarded to the provision service by the invoking shell, never written
+  into `.env`, and never reachable from the enclave, where they would be useless anyway. ASF's
+  own documentation reaches for `curl --location-trusted`, which means *send the password to
+  whatever host redirects you*; `spatial/archive.py` walks the redirect chain itself and attaches
+  the credential only when the hop is `urs.earthdata.nasa.gov`.
 
 ---
 
@@ -108,18 +166,31 @@ cp .env.example .env      # then set POSTGRES_PASSWORD
 make preflight            # checks docker, the nvidia runtime, VRAM, the AOI config
 make up                   # build + start, waits for every container healthy
 make pull-models          # once, ~10 GB   ┐
-make fetch-corpus         # once, ~35 MB   ├ the only steps that touch the network
-make fetch-coastline      # once, 149 MB   ┘ (149 MB in, 713 KB kept)
-make fetch-gfw            # once, ~70 detections — the cross-check layer (needs GFW_TOKEN)
+make fetch-corpus         # once, ~35 MB   │
+make fetch-granules       # once, 2.8 GB   ├ the only steps that touch the network
+make fetch-ais            # once, 890 MB   │
+make fetch-coastline      # once, 149 MB   │ (149 MB in, 713 KB kept)
+make fetch-gfw            # once, ~70 detections ┘ the cross-check layer
 make ingest               # chunk + embed the corpus into Qdrant (~1 min, offline)
 make air-gap-proof        # §M1: no egress, inference works anyway
 make rag-proof            # §M2: ungrounded vs grounded, and the refusal path
 make dark-proof           # §M3: detector, AIS, the space-time join, and the renders
 make tool-proof           # §M4: the tools over MCP, and the local model chaining them
 make agent-proof          # §M5: halts at the human gate, resumes in a different container
+make demo                 # §6:  the recording above, live, ~60 s
 ```
 
 `make` with no target lists everything.
+
+Two of those need an account, both free: `fetch-granules` wants an
+[Earthdata login](https://urs.earthdata.nasa.gov) **with the ASF EULA accepted** — a valid
+password on its own produces a redirect loop rather than a 401 — and `fetch-gfw` wants a
+[GFW API token](https://globalfishingwatch.org/our-apis/tokens). `fetch-ais` needs neither.
+Every fetch is checksummed against [`data/sources.yaml`](data/sources.yaml), resumes a partial
+download, and re-runs as a no-op; `make fetch-granules VERIFY=1` re-hashes what is already on
+disk instead of trusting its size. The default set is 2.8 GB — everything the proofs and the
+demo need. `ALL=1` adds the two granules of a first attempt that pointed at the wrong orbit,
+which are kept in the manifest because the mistake is worth being able to look at.
 
 **On this machine**, the host runs ollama as a systemd service with `OLLAMA_KEEP_ALIVE=-1`,
 which pins ~15 GB of the 3090 permanently and leaves the enclave's own ollama unable to load a
@@ -238,7 +309,7 @@ reports vessel detections off Madeira, and adding one would quietly delete this 
 reason this repository no longer demonstrates. It was chosen because deployments are national
 and a corpus and its queries will not always share a language; six memos were originally drafted
 in another language to exercise that, and they have since been rewritten in English. The
-measured cross-language separation that justified the choice is recorded in `NOTES.md` (0.842
+measured cross-language separation that justified the choice is recorded in `docs/NOTES.md` (0.842
 cosine against a translated equivalent, 0.283 against unrelated text in the same language), and
 nothing in the shipped corpus exercises it today. Stated plainly rather than left as an
 unsupported claim.
@@ -438,7 +509,8 @@ measured over Denmark.
 
 Denmark validates the matcher against AIS. Nothing there validates the *detector*, so the
 Lisbon scene is cross-checked against Global Fishing Watch's published SAR detections — and
-because each GFW feature id carries its source granule, that granule is one of the six on disk.
+because each GFW feature id carries its source granule, that granule is one `make fetch-granules`
+puts on disk.
 This is detection-for-detection over the same pixels, not "they saw N in this box and we saw M".
 `make fetch-gfw` (provision network, `GFW_TOKEN` from `~/.config/eo-credentials.env`), then
 `make gfw-compare`:
@@ -713,6 +785,7 @@ carrying a note saying so and how to select them, so the bound is visible in the
 | PostGIS for geometry | Spatial correlation belongs in a spatial database, not in Python. The dark-vessel join is one query in `src/nightglass/spatial/sql/dark_vessels.sql` — track interpolation via `LEAD`, the azimuth-displacement correction via `ST_Project`, distances via `geography` casts so they come back in metres rather than degrees. It stays a `.sql` file so it can be read top to bottom and run a CTE at a time. |
 | Scene as a STAC Item, not a bespoke table | `stac_search` (§5) is a catalogue query. Modelling the catalogue as STAC keeps the door open to pointing the same tool at a real STAC API — which is what a customer deployment has — rather than at a table only this project understands. The Item is stored whole in `jsonb`; the columns beside it are extracted for indexing. |
 | A shoreline is a fourth provisioning input | Weights, documents, granules — and now GSHHG. The detector's own land mask structurally cannot separate a 100 m skerry from a 100 m hull, so an air-gapped deployment genuinely has to ship a coastline with it. Saying that is a better answer to "what does this need bundled" than pretending the list was three items long. |
+| A committed manifest, gitignored bytes | `data/sources.yaml` carries a URL, a size and a sha256 for every external input; `data/` carries none of them. The fetchers verify against it and refuse a mismatch, so "the numbers in this README" and "the bytes on your disk" are the same claim. It is also what makes the two data fetchers auditable rather than trusted: a reviewer can check what they are pointed at without running them. |
 | TPS over polynomial GCP fit | Measured on a real granule: polynomial leaves 40 m mean / 185 m worst-case geolocation error, TPS leaves 0.000 m. 15× slower on a cost of 0.15 s per 20,000 points. |
 | GRD not SLC | Vessel detection needs amplitude only. Phase is for interferometry, which is out of scope. |
 | Agent as a one-shot, not a service | It runs to a human gate and halts. It has nothing to serve between invocations, so a daemon wrapper would exist only to satisfy a healthcheck. |
@@ -723,8 +796,8 @@ carrying a note saying so and how to select them, so the bound is visible in the
 
 | Source | Use | Licence / terms |
 |---|---|---|
-| **Sentinel-1 GRD** (ESA, via ASF) | SAR imagery, both AOIs | Free and open. Requires a NASA Earthdata account and one-time ASF EULA acceptance. |
-| **Danish Maritime Authority AIS** | Point-level ground truth, validation AOI | See attribution below. |
+| **Sentinel-1 GRD** (ESA, via ASF) | SAR imagery, both AOIs — `make fetch-granules` | Free and open. Requires a NASA Earthdata account and one-time ASF EULA acceptance. |
+| **Danish Maritime Authority AIS** | Point-level ground truth, validation AOI — `make fetch-ais` | Public S3, no credentials. See attribution below. |
 | **eo-credentials** | `GFW_TOKEN` and friends live in `~/.config/eo-credentials.env`, never in this repo — `scripts/load-env.sh` loads it before `.env`, and a blank value in `.env` means *defer to central* rather than *override with empty*. | — |
 | **Global Fishing Watch** SAR detections | Independent reference layer, demo AOI | **CC BY-NC 4.0** — non-commercial, attribution required. |
 | **aisstream.io** | Live demonstration feed, demo AOI | Free tier. **Not ground truth** — see Limitations. |
@@ -765,6 +838,19 @@ Stated before being asked, because each one was tested rather than assumed.
   against. Denmark is the only AOI where this is observable, which is much of what the Danish
   AOI is for.
 - Single scene per AOI. No CFAR tuning. No accuracy claims beyond what was measured.
+- **Only Class A and Class B AIS is treated as a vessel.** The DMA feed also carries base
+  stations and aids to navigation — 7,857 rows in this acquisition window, 5.7% of it. They are
+  excluded, because matching a detection to a navigation buoy would report a fixed installation
+  as a vessel that had declared itself. The consequence is the honest one and it runs the other
+  way: a detection sitting on a lit beacon is reported **unmatched**, and is part of the 40%.
+  This rule was missing from the code until M6 — the hand-cut CSV used through M3–M5 had it
+  baked in and nothing said so, which is finding 50 and much of the argument for the fetchers.
+- **`make fetch-ais` will eventually stop working, and the code cannot fix it.** The DMA S3
+  bucket serves daily files on a rolling window of roughly eighteen months. `aisdk-2026-07-17`
+  is inside it today; when it ages out, the Danish validation becomes unreproducible from this
+  manifest and the archive would have to be re-pointed at a monthly file. The granules do not
+  have this problem — the Sentinel-1 archive at ASF is permanent. Stated because a manifest
+  invites the assumption that everything in it is permanently retrievable, and one half is not.
 - **40% of detections unmatched is not a 40% dark-vessel rate.** Published work on Danish waters
   finds ~5% unmatched and ~0.4% genuinely dark after review. The excess concentrates near shore —
   the shoreline-buffer sweep above removes 17 unmatched detections against 2 matched between
@@ -837,7 +923,7 @@ exists for this mission.
 docker-compose.yml        the enclave — one internal network, no egress
 .mcp.json                 the MCP attach, committed — clone and Claude Code has the tools
 docker/                   application image (runtime · fetcher · dev), postgis init
-scripts/                  preflight, the four proofs, MCP stdio probe, model seeding
+scripts/                  preflight, the four proofs, the demo, its pacing and its check
 corpus/
   sources.yaml            manifest of the 39 public documents — URLs, not documents
   synthetic/              21 INTREP/INTSUM memos, UNCLASSIFIED // SYNTHETIC, committed
@@ -845,6 +931,7 @@ corpus/
 src/nightglass/
   config.py               AOI resolution — the only place a bbox is named
   schemas.py              the §5 tool contracts, with provenance attached
+  display.py              wrapping — the two renderers that show a model at work
   rag/
     fetch.py              ONLINE. the only module here that opens an outward socket
     extract.py            pdf · markdown · activation JSON -> text worth embedding
@@ -854,6 +941,7 @@ src/nightglass/
     answer.py             grounded generation, citation verification, refusal
     cli.py                nightglass-corpus fetch|ingest|search|ask|stats
   spatial/
+    archive.py            ONLINE. the manifest, and a resumable checksummed fetch
     safe.py               Sentinel-1 SAFE read in place: annotation, calibration, noise, GCPs
     detect.py             the vessel detector — CFAR, land mask, TPS geolocation
     geodesy.py            bearings, and the azimuth-displacement physics
@@ -866,7 +954,7 @@ src/nightglass/
     render.py             chips, scene overview, map view — the evidence
     plots.py              validation charts
     validate.py           measure the detector against DMA ground truth
-    cli.py                nightglass-spatial migrate|scenes|detect|load-ais|dark|render
+    cli.py                nightglass-spatial fetch-granules|fetch-ais|scenes|detect|dark|…
   tools/
     spatial.py            stac_search · detect_vessels · ais_match · correlate
     documents.py          doc_search — the M2 retriever behind the same boundary
@@ -878,12 +966,17 @@ src/nightglass/
   agent/
     graph.py              parse → plan → tools → correlate → draft_intrep → GATE → release
     main.py               nightglass-agent ask|pending|show|approve|reject
-docs/evidence/            committed renders — the snapshot the README's numbers come from
-data/                     gitignored — 6.2 GB of SAR and AIS, the corpus, the coastline
-  out/                    rendered evidence, regenerated by `make dark-proof`
-EXECUTION_SPEC.md         what to build
-PRE_DEV_GUIDE.md          verified data access paths
-NOTES.md                  decisions, corrections, measurements
+data/
+  sources.yaml            COMMITTED. url + bytes + sha256 for all 6.2 GB of it
+  raw/ interim/ out/      gitignored — the granules, the AIS, the rendered evidence
+docs/
+  EXECUTION_SPEC.md       what to build
+  PRE_DEV_GUIDE.md        verified data access paths
+  NOTES.md                decisions, corrections, measurements — 56 numbered findings
+  HANDOVER_M6.md          the brief M6 was built from, and what came of it
+  HANDOVER_M7.md          what is left, and why it is optional
+  demo.cast · demo.mp4 · demo.gif    the walkthrough: record, watch, embed
+  evidence/               committed renders — the snapshot the numbers come from
 ```
 
 Licence: Apache-2.0.

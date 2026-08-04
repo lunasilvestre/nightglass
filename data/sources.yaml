@@ -1,0 +1,130 @@
+# NIGHTGLASS — the data this repository does not ship.
+#
+# `data/` is 6.2 GB of SAR and AIS and it is gitignored. This file is the part
+# that IS committed: where every byte came from, how big it is, and what it
+# hashes to. It is what makes EXECUTION_SPEC §M6 — "someone else could clone,
+# `make up`, and reproduce the demo" — true rather than true-on-one-machine.
+#
+#   make fetch-granules   reads `sar:`   (Earthdata login, EULA accepted)
+#   make fetch-ais        reads `ais:`   (public, no credentials)
+#
+# The sha256 values were computed from the files these numbers were measured
+# over. A fetch that produces a different hash is not the same evidence, and the
+# fetcher refuses rather than carrying on — the alternative is a README whose
+# numbers cannot be traced to a byte.
+#
+# Roles, and why a manifest needs them:
+#   required     a proof or the demo will not run without it
+#   optional     catalogued and part of the picture; no number depends on it
+#   superseded   kept because the mistake is instructive, never fetched by
+#                default. See `note:`.
+
+sar:
+  # Sentinel-1 GRD, free and open under the Copernicus licence, redistributed by
+  # the Alaska Satellite Facility. ASF needs an Earthdata login AND the EULA
+  # accepted at urs.earthdata.nasa.gov/profile — a valid password is not enough,
+  # and the failure without it is a redirect loop rather than a 401.
+  licence: >-
+    Contains modified Copernicus Sentinel data 2026, processed by ESA.
+    Distributed by the Alaska Satellite Facility (ASF DAAC).
+  credentials: earthdata
+  out: /app/data/raw/sar
+  items:
+    - name: S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13.zip
+      url: https://datapool.asf.alaska.edu/GRD_HD/SD/S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13.zip
+      sha256: 06322098f3ba9e91b898c90da220e9acf3040339ac177cc2c289e3e9d02bbb8f
+      bytes: 1007713998
+      aoi: kattegat
+      role: required
+      note: >-
+        The validation scene. Every M3 number in the README — 35 detections,
+        21 matched, 14 unmatched, 104 m median match distance — is this granule.
+
+    - name: S1D_IW_GRDH_1SDV_20260717T052349_20260717T052414_003709_006A36_34CE.zip
+      url: https://datapool.asf.alaska.edu/GRD_HD/SD/S1D_IW_GRDH_1SDV_20260717T052349_20260717T052414_003709_006A36_34CE.zip
+      sha256: 7824bc63f90c52b2001bb78ecae28036ecaed6590b2962205b759938e1d6f53f
+      bytes: 918201907
+      aoi: kattegat
+      role: required
+      note: >-
+        The adjacent frame, 25 s later and disjoint in latitude. `correlate`
+        picks by coverage of the requested bbox and picks THIS one, so a clone
+        without it gets a different scene id than the walkthrough shows.
+
+    - name: S1A_IW_GRDH_1SDV_20260613T064316_20260613T064341_064947_082F4F_F72E.zip
+      url: https://datapool.asf.alaska.edu/GRD_HD/SA/S1A_IW_GRDH_1SDV_20260613T064316_20260613T064341_064947_082F4F_F72E.zip
+      sha256: 74e8d9ba05c0d6fc62f55c0f32acb765513f8463d08cc455c387efa55564b8bf
+      bytes: 832011757
+      aoi: lisbon
+      role: required
+      note: >-
+        The demo scene, Tagus approaches. Different platform (S1A), different
+        sea state, different beam geometry, and the detector runs over it with
+        no parameter touched. It is also the granule GFW published detections
+        for, which is what makes `make gfw-compare` a detection-for-detection
+        comparison rather than a comparison of counts.
+
+    - name: S1A_IW_GRDH_1SDV_20260613T064226_20260613T064251_064947_082F4F_2264.zip
+      url: https://datapool.asf.alaska.edu/GRD_HD/SA/S1A_IW_GRDH_1SDV_20260613T064226_20260613T064251_064947_082F4F_2264.zip
+      sha256: 479dc240f3d5e75ee79d00a33a2f814a4fd692a6b341570de9917602ea64d88b
+      bytes: 874202332
+      aoi: leixoes
+      role: optional
+      note: >-
+        The third configured AOI. Catalogued by `make scenes`, no detector run
+        against it, no number anywhere depends on it. It is here because
+        "adding an AOI is two lines in .env" should be checkable.
+
+    - name: S1D_IW_GRDH_1SDV_20260613T065028_20260613T065053_003214_0059AB_09C0.zip
+      url: https://datapool.asf.alaska.edu/GRD_HD/SD/S1D_IW_GRDH_1SDV_20260613T065028_20260613T065053_003214_0059AB_09C0.zip
+      sha256: 9ff07cdf7cf92aa423ab4f013df9685cd8589559b09df8ff8ac86a2a275148d9
+      bytes: 670769277
+      aoi: lisbon
+      role: superseded
+      note: >-
+        Path 23 descending. Selected first, and wrong: it sits offshore in the
+        Atlantic and misses the Tagus and Leixões approaches entirely. Kept in
+        the manifest because "the scene covers the AOI's bounding box" and "the
+        scene covers the water traffic actually uses" are different questions.
+
+    - name: S1D_IW_GRDH_1SDV_20260613T065053_20260613T065118_003214_0059AB_E4C7.zip
+      url: https://datapool.asf.alaska.edu/GRD_HD/SD/S1D_IW_GRDH_1SDV_20260613T065053_20260613T065118_003214_0059AB_E4C7.zip
+      sha256: 5d4da2509739c0ae2bc3b428db928d094d5332b04eec45563c36d8c4a7cd2668
+      bytes: 733815439
+      aoi: lisbon
+      role: superseded
+      note: The second half of the same wrong pass. See 09C0.
+
+ais:
+  # The Danish Maritime Authority publishes free point-level HISTORICAL AIS,
+  # which is the entire reason the validation AOI is Danish (§3.1). The host in
+  # the pre-dev guide (web.ais.dk) is dead; this S3 bucket is the live one and
+  # needs no credentials. Daily files are a rolling window — see NOTES.
+  licence: >-
+    Danish Maritime Authority — AIS data. The Danish Maritime Authority accepts
+    no liability for any errors or omissions, nor for the correctness or
+    completeness of the data.
+  credentials: none
+  out: /app/data/raw/ais
+  items:
+    - name: aisdk-2026-07-17.zip
+      url: http://aisdata.ais.dk.s3.eu-central-1.amazonaws.com/aisdk-2026-07-17.zip
+      sha256: bb592db47ac03877c35acf9aa96ad380d83df7abc4f898c1d4721c56dc897116
+      bytes: 889684392
+      aoi: kattegat
+      role: required
+      note: >-
+        The acquisition day. 5.45 GB of CSV inside the zip, ~24 M rows, of which
+        the ±30 min around the overpass is ~0.6%. `fetch-ais` writes that slice
+        to data/interim/ so nothing downstream has to scan the day again.
+
+    - name: aisdk-2026-03-29.zip
+      url: http://aisdata.ais.dk.s3.eu-central-1.amazonaws.com/aisdk-2026-03-29.zip
+      sha256: b7579f6d529f70edf4b5aeddac77e0d0fe63bef124274be9b77fb56d03e4d343
+      bytes: 621776613
+      aoi: kattegat
+      role: optional
+      note: >-
+        The last Sunday of March — the day Europe/Copenhagen springs forward.
+        Used once during pre-dev to confirm the timestamps are UTC and the DST
+        transition does not appear in them. Nothing shipped reads it.

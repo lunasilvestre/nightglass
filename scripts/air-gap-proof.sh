@@ -44,7 +44,7 @@ echo '$ chat completion against the local model'
 # ungrounded, the model answers with hull colour or denies the term has a
 # maritime meaning -- fluent, confident, and domain-wrong. That answer is worth
 # a great deal, but as the M2 before/after contrast, not sitting underneath the
-# words "inference works" in the M1 capture. See NOTES.md.
+# words "inference works" in the M1 capture. See docs/NOTES.md.
 docker compose exec -T api curl -sS -m 180 http://ollama:11434/api/chat \
   -d "$(python3 -c '
 import json, os

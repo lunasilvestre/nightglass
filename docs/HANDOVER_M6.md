@@ -1,4 +1,15 @@
-# Handover prompt — M6
+# Handover prompt — M6  ✅ DONE 2026-08-04
+
+> **This was the brief, and it has been carried out.** `make fetch-granules` and `make fetch-ais`
+> exist, `data/sources.yaml` is the committed manifest they verify against, and the recording is
+> `docs/demo.mp4`, `docs/demo.gif` and `docs/demo.cast` (`make demo` runs it live). The recording decision went to
+> **option 2** — the Lisbon AOI for the question, the detections and the withheld verdict; Denmark
+> for the correlation numbers. Everything below is the brief as written, kept because the
+> reasoning in it is still the reasoning. What actually happened, including the bug that
+> reproducing the demo uncovered, is NOTES findings 50–56.
+
+---
+
 
 **One sentence, if that is all you want to paste:**
 
@@ -97,5 +108,5 @@ passed (finding 47). If you change the Makefile with a script, diff the `.PHONY`
 
 ## Keep NOTES.md current
 
-Numbered findings for surprises, README for evidence. Findings are at 49. The file is the study
-aid and it is doing real work — most of what is above came out of it.
+Numbered findings for surprises, README for evidence. Findings are at 49 — M6 took them to 56.
+The file is the study aid and it is doing real work — most of what is above came out of it.

@@ -1,6 +1,6 @@
 """`nightglass-agent` — §M5's graph from a terminal.
 
-    nightglass-agent ask "Houve alguma embarcação …?"   run to the gate, and stop
+    nightglass-agent ask "Were there any …?"            run to the gate, and stop
     nightglass-agent pending                            what is halted, awaiting review
     nightglass-agent show <thread>                      the draft, as the reviewer sees it
     nightglass-agent approve <thread>                   resume and release
@@ -25,6 +25,7 @@ from typing import Any
 
 from nightglass.agent.graph import GATE, build, new_thread_id
 from nightglass.config import settings
+from nightglass.display import call, wrap
 
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -95,7 +96,7 @@ def _print_progress(values: dict[str, Any]) -> None:
             note = (
                 "  ERROR" if s.get("error") else ("  REPEAT — told to advance" if s.get("repeated") else "")
             )
-            print(f"  {i}. {s['tool']}({json.dumps(s['arguments'], ensure_ascii=False)[:90]}){note}")
+            print(call(i, s["tool"], json.dumps(s["arguments"], ensure_ascii=False), note=note))
     c = values.get("correlation")
     if c:
         dark = [m for m in c["matches"] if m["status"] == "dark"]
@@ -113,10 +114,12 @@ def _print_gate(result: dict[str, Any], thread: str) -> None:
         print(f"  marking             {payload.get('marking')}")
         print(f"  claims              {payload.get('claims')}")
         print(f"  unsupported claims  {payload.get('unsupported_claims')}")
+        # Wrapped, not sliced. A caveat is the part of a report that exists to
+        # be read in full; cropping one for width is cropping the argument.
         for c in payload.get("caveats", []):
-            print(f"    - {c[:150]}")
+            print(wrap(c, first="    - ", cont="      "))
         for e in payload.get("errors", []):
-            print(f"  {YELL}! {e[:150]}{RESET}")
+            print(f"{YELL}{wrap(e, first='  ! ', cont='    ')}{RESET}")
     print(
         f"\n{DIM}State is persisted in Postgres. This process can exit; the run cannot\n"
         f"advance without a human. Inspect it with:{RESET}\n"
@@ -157,7 +160,8 @@ def cmd_pending(_args: argparse.Namespace) -> int:
             if GATE not in (snapshot.next or ()):
                 continue
             v = snapshot.values
-            rows.append((thread, v.get("question", "")[:60], _marking_of(v)))
+            q = v.get("question", "")
+            rows.append((thread, q if len(q) <= 60 else q[:59] + "…", _marking_of(v)))
 
     _rule(f"awaiting human review  ({len(rows)})")
     if not rows:

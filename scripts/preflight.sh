@@ -89,7 +89,7 @@ elif command -v nvidia-smi >/dev/null 2>&1; then
                 printf '      The host ollama service is running and pinning the card\n'
                 printf '      (OLLAMA_KEEP_ALIVE=-1 holds ~15 GB resident).\n'
                 printf '      \033[1msudo systemctl stop ollama\033[0m   frees it.\n'
-                printf '      It is a dev convenience; the enclave runs its own — see NOTES.md.\n'
+                printf '      It is a dev convenience; the enclave runs its own — see docs/NOTES.md.\n'
             fi
         else
             ok "${free_mib} MiB of ${total_mib} MiB VRAM free"

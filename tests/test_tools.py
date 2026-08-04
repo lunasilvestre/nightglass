@@ -425,3 +425,61 @@ def test_the_caveat_explaining_the_guard_would_not_survive_the_guard():
     from nightglass.tools.intrep import PRECISION_CAVEAT
 
     assert states_a_rate(PRECISION_CAVEAT)
+
+
+# -- rendering ---------------------------------------------------------------
+
+
+def test_a_tool_call_is_wrapped_and_never_sliced():
+    """Truncation that looks like completion is worse than no output.
+
+    Both the agent gate and the chaining transcript used to render a call as
+    `f"{tool}({json.dumps(args)[:90]})"` — slice, then append the paren. That
+    produced *plausible* JSON: balanced, syntactically innocent, and silently
+    missing arguments. It reached the demo recording before anyone noticed.
+    """
+    import json
+
+    from nightglass.display import call
+
+    args = {
+        "bbox": [-10.5, 38.0, -8.5, 39.5],
+        "start": "2026-06-13T00:00:00Z",
+        "end": "2026-06-13T23:59:59Z",
+        "min_length_m": 20,
+    }
+    raw = json.dumps(args)
+    out = call(1, "correlate", raw)
+    # Every argument survives, whatever the line breaks did.
+    flat = " ".join(out.split())
+    assert flat == f"1. correlate({raw})"
+    for key in args:
+        assert key in out
+    assert "…" not in out
+
+
+def test_a_caveat_is_wrapped_and_never_sliced():
+    """§7's whole argument is that the system says what it does not know, so a
+    caveat is the last thing that may be cropped for width. A `[:150]` slice cut
+    'They are detections, not dark de|tections'."""
+    from nightglass.display import wrap
+
+    caveat = (
+        "NO AIS was available for this acquisition window, so none of the 71 "
+        "detection(s) above has been assessed against AIS. They are detections, "
+        "not dark detections, and nothing here says whether any vessel was "
+        "transmitting. This report carries no correlation finding."
+    )
+    out = wrap(caveat, first="    - ", cont="      ")
+    assert " ".join(out.split()) == "- " + caveat
+    assert max(len(line) for line in out.splitlines()) <= 100
+
+
+def test_wrapping_does_not_break_an_identifier():
+    """A detection id split across two lines stops being greppable, which is
+    most of what an id is for."""
+    from nightglass.display import wrap
+
+    ident = "det-20260717-0523-S1D_IW_GRDH_1SDV_20260717T052324_003709_006A36_BC13-17"
+    out = wrap(f"the id is {ident} and it must survive", first="  ")
+    assert ident in out

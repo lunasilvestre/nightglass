@@ -58,7 +58,7 @@ from nightglass.tools.base import DMA_ATTRIBUTION
 #: not, and the honest place for that fact is a constant a reader can grep for
 #: rather than a paragraph in a README. Flipping it to True is a claim about
 #: measurement, so it should only ever change in the same commit as the
-#: measurement — see NOTES.md finding 24 and the shoreline sweep in the README.
+#: measurement — see docs/NOTES.md finding 24 and the shoreline sweep in the README.
 DETECTOR_PRECISION_VALIDATED = False
 
 PRECISION_CAVEAT = (

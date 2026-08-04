@@ -2,7 +2,7 @@
 
     nightglass-tools list                         what exists, and its signature
     nightglass-tools call correlate --json '{…}'  one tool, raw JSON out
-    nightglass-tools chain "Houve alguma …?"      the local model, choosing for itself
+    nightglass-tools chain "Were there any …?"    the local model, choosing for itself
 
 The third is §M4's second "done when". The first two exist because a tool
 surface that can only be exercised through a model is a tool surface nobody can

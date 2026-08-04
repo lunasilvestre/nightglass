@@ -263,6 +263,23 @@ def test_cog_and_heading_sentinels_become_none():
     assert p.heading_deg is None
 
 
+@pytest.mark.parametrize("mobile", ["Base Station", "AtoN", "SAR Airborne", ""])
+def test_only_vessels_become_positions(mobile):
+    """A shore transmitter and a navigation buoy are not ships.
+
+    Found by M6 rather than designed. The acquisition window used through M3–M5
+    was a CSV cut by hand during pre-dev, and that cut had quietly kept only
+    Class A and Class B; the code had no such rule, so reading the same window
+    out of the daily file the manifest fetches produced 7,857 extra rows —
+    5.5% base stations, plus navigation aids. Matching a detection to one would
+    report a buoy as a vessel that had declared itself.
+    """
+    row = list(ROW)
+    row[1] = mobile
+    assert _parse_dma_row(row, "dma") is None
+    assert _parse_dma_row(ROW, "dma") is not None
+
+
 def test_dedup_key_is_the_spec_rule():
     """§3.2: 71% of raw DMA rows are exact rebroadcast duplicates, worst case 21
     identical copies. The key is (mmsi, timestamp, lat, lon)."""

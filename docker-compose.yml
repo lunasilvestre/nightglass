@@ -313,6 +313,78 @@ services:
     command: ["fetch", "--sources", "/app/corpus/sources.yaml", "--out", "/app/data/corpus"]
 
   # ---------------------------------------------------------------------------
+  # granule-fetcher -- provisioning only. NOT part of the enclave.
+  # ---------------------------------------------------------------------------
+  # The pixels. 2.8 GB of Sentinel-1 GRD from ASF, and the input that had no
+  # fetch step until M6: the granules were staged by hand during pre-dev and
+  # `data/` is gitignored, so §M6's "someone else could clone, make up, and
+  # reproduce the demo" was false for every machine but the one it was built on.
+  #
+  # EARTHDATA_USERNAME and EARTHDATA_PASSWORD are passed THROUGH from the
+  # invoking shell, exactly like GFW_TOKEN below: `make fetch-granules` sources
+  # scripts/load-env.sh, which resolves them from ~/.netrc -- the file ASF's own
+  # documentation tells you to write -- and compose forwards the names only.
+  # No credential is written into this file or into .env.
+  #
+  # `--location-trusted`, which every ASF example uses, means "send the password
+  # to whatever host you get redirected to". src/nightglass/spatial/archive.py
+  # walks the redirect chain itself instead and attaches the credential only
+  # when the hop is urs.earthdata.nasa.gov. The signed CloudFront URL at the end
+  # of that chain carries its own authorisation and has no use for a password.
+  granule-fetcher:
+    profiles: ["provision"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: fetcher
+    image: nightglass/fetcher:dev
+    container_name: nightglass-granule-fetcher
+    networks: [provision]
+    restart: "no"
+    env_file: [.env]
+    environment:
+      # No values: forward whatever the invoking shell has.
+      - EARTHDATA_USERNAME
+      - EARTHDATA_PASSWORD
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    entrypoint: ["nightglass-spatial"]
+    volumes:
+      - ./data/sources.yaml:/app/data/sources.yaml:ro
+      - ./data/raw/sar:/app/data/raw/sar
+    command: ["fetch-granules", "--out", "/app/data/raw/sar"]
+
+  # ---------------------------------------------------------------------------
+  # ais-fetcher -- provisioning only. NOT part of the enclave.
+  # ---------------------------------------------------------------------------
+  # The Danish Maritime Authority's daily AIS, and the reason the validation AOI
+  # is Danish at all: it is the only free point-level HISTORICAL feed in Europe,
+  # so it is the only place a claim about the matcher can be checked instead of
+  # asserted. Public S3, no credentials -- the only fetcher here that needs none.
+  #
+  # It also cuts the acquisition window out of the day, which is why it mounts
+  # the granules read-only: the window is derived from the scene's own
+  # acquisition time rather than hardcoded. 24 M rows in, ~400 k out.
+  ais-fetcher:
+    profiles: ["provision"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: fetcher
+    image: nightglass/fetcher:dev
+    container_name: nightglass-ais-fetcher
+    networks: [provision]
+    restart: "no"
+    env_file: [.env]
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+    entrypoint: ["nightglass-spatial"]
+    volumes:
+      - ./data/sources.yaml:/app/data/sources.yaml:ro
+      - ./data/raw/sar:/app/data/raw/sar:ro
+      - ./data/raw/ais:/app/data/raw/ais
+      - ./data/interim:/app/data/interim
+    command: ["fetch-ais", "--out", "/app/data/raw/ais"]
+
+  # ---------------------------------------------------------------------------
   # coastline-fetcher -- provisioning only. NOT part of the enclave.
   # ---------------------------------------------------------------------------
   # The fourth and last thing this system needs from the outside world, after

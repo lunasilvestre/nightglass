@@ -35,8 +35,10 @@ up: preflight  ## build and start the enclave, wait for healthy
 	@$(COMPOSE) ps
 	@echo
 	@echo "Enclave up."
-	@echo "  once:   make pull-models      (~10 GB)   make fetch-corpus (~35 MB)  make ingest"
-	@echo "  proof:  make air-gap-proof    (M1)       make rag-proof              (M2)"
+	@echo "  once:   make pull-models (10 GB)  fetch-corpus (35 MB)  fetch-granules (2.8 GB)"
+	@echo "          make fetch-ais (890 MB)   fetch-coastline       fetch-gfw     then ingest"
+	@echo "  proof:  make air-gap-proof (M1)  rag-proof (M2)  dark-proof (M3)  tool-proof (M4)"
+	@echo "  demo:   make demo         §6 end to end, both AOIs, ~60 s"
 
 .PHONY: down
 down:  ## stop the enclave, keep volumes
@@ -74,6 +76,30 @@ fetch-corpus:  ## fetch the public half of the document corpus (M2). ~35 MB.
 	@mkdir -p data/corpus
 	$(PROVISION) run --rm corpus-fetcher fetch \
 	  --sources /app/corpus/sources.yaml --out /app/data/corpus $(if $(FORCE),--force,)
+
+.PHONY: fetch-granules
+fetch-granules:  ## fetch the Sentinel-1 granules every proof runs over (M6). 2.8 GB. Needs Earthdata.
+	@echo ">> Runs on the provision network, not the enclave."
+	@echo ">> Sentinel-1 is free and open, but ASF wants an Earthdata login AND the"
+	@echo ">> EULA accepted at urs.earthdata.nasa.gov/profile. load-env.sh reads"
+	@echo ">> ~/.netrc; compose forwards the two variables by name, never a value."
+	@echo ">> ALL=1 adds the optional and superseded entries (4.7 GB); VERIFY=1"
+	@echo ">> sha256s what is already on disk instead of checking its size."
+	@mkdir -p data/raw/sar
+	@source scripts/load-env.sh >/dev/null && \
+	  $(PROVISION) run --rm granule-fetcher fetch-granules --out /app/data/raw/sar \
+	    $(if $(ALL),--all,) $(if $(VERIFY),--verify,) $(if $(FORCE),--force,) \
+	    $(if $(NAME),--name $(NAME),)
+
+.PHONY: fetch-ais
+fetch-ais:  ## fetch the DMA day and cut the acquisition window out of it (M6). 890 MB. No credentials.
+	@echo ">> Runs on the provision network, not the enclave. Public S3, no token."
+	@echo ">> Needs the granules first — the slice window comes from the scene's own"
+	@echo ">> acquisition time, not from a hardcoded pair of clock times."
+	@mkdir -p data/raw/ais data/interim
+	$(PROVISION) run --rm -e NIGHTGLASS_AOI=$(or $(AIS_AOI),kattegat) ais-fetcher \
+	  fetch-ais --out /app/data/raw/ais --slice-out /app/data/interim \
+	    $(if $(ALL),--all,) $(if $(VERIFY),--verify,) $(if $(FORCE),--force,)
 
 .PHONY: fetch-coastline
 fetch-coastline:  ## fetch GSHHG and clip it to the configured AOIs (M3). 149 MB in, ~200 KB out.
@@ -142,11 +168,11 @@ docs-stats:  ## what is actually in the document index
 	$(COMPOSE) exec api nightglass-corpus stats
 
 .PHONY: docs-search
-docs-search:  ## doc_search from the CLI. make docs-search Q="embarcação escura"
+docs-search:  ## doc_search from the CLI. make docs-search Q="dark vessel"
 	$(COMPOSE) exec api nightglass-corpus search "$(Q)" -k $(or $(K),8)
 
 .PHONY: ask-docs
-ask-docs:  ## grounded, cited answer. make ask-docs Q="o que é uma embarcação escura?"
+ask-docs:  ## grounded, cited answer. make ask-docs Q="what is a dark vessel?"
 	$(COMPOSE) exec api nightglass-corpus ask "$(Q)" --sources
 
 .PHONY: rag-proof
@@ -159,7 +185,9 @@ rag-proof:  ## §M2: same question ungrounded vs grounded, plus the refusal path
 # the only one with free point-level historical AIS, so it is the only place a
 # claim about the matcher can be checked rather than asserted.
 DK_SCENE ?= /app/data/raw/sar/S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13.zip
-DK_AIS   ?= /app/data/interim/ais_kattegat_20260717_0513-0534.csv
+# Written by `make fetch-ais`, and named after the window it holds rather than
+# chosen: ±30 min around this scene's acquisition. The matcher takes ±11 of it.
+DK_AIS   ?= /app/data/interim/ais_kattegat_20260717_0453-0553.csv
 AOI      ?= kattegat
 SPATIAL   = $(COMPOSE) exec -T -e NIGHTGLASS_AOI=$(AOI) api nightglass-spatial
 
@@ -212,7 +240,7 @@ gfw-compare:  ## our detector vs GFW's published layer, over the identical granu
 AGENT = $(COMPOSE) --profile cli run --rm -e NIGHTGLASS_AOI=$(or $(AGENT_AOI),kattegat) agent
 
 .PHONY: ask
-ask:  ## M5: run the agent to the human gate and stop. make ask Q="Houve alguma...?"
+ask:  ## M5: run the agent to the human gate and stop. make ask Q="Were there any...?"
 	$(AGENT) ask "$(Q)"
 
 .PHONY: pending
@@ -232,7 +260,7 @@ reject:  ## M5: resume and withhold. make reject T=ng-... NOTE="why"
 	$(AGENT) reject $(T) $(if $(NOTE),--note "$(NOTE)",)
 
 .PHONY: agent-proof
-agent-proof:  ## §M5 end to end: Portuguese question, halt at the gate, resume on approval
+agent-proof:  ## §M5 end to end: a question, a halt at the gate, a resume on approval
 	@scripts/agent-proof.sh
 
 .PHONY: shell
@@ -250,7 +278,7 @@ tool-call:  ## one tool, raw JSON. make tool-call T=correlate J='{"bbox":[...],"
 	$(COMPOSE) exec -T -e NIGHTGLASS_AOI=$(AOI) api nightglass-tools call $(T) --json '$(J)'
 
 .PHONY: chain
-chain:  ## let the local model pick and chain tools. make chain Q="Houve alguma...?"
+chain:  ## let the local model pick and chain tools. make chain Q="Were there any...?"
 	$(COMPOSE) exec -T -e NIGHTGLASS_AOI=$(AOI) api nightglass-tools chain "$(Q)"
 
 .PHONY: mcp-tools
@@ -260,3 +288,25 @@ mcp-tools:  ## list the MCP tools over the stdio transport Claude Desktop uses
 .PHONY: tool-proof
 tool-proof:  ## §M4 end to end: MCP over stdio, the local model chaining, the INTREP guard
 	@scripts/tool-proof.sh
+
+##@ The demo  (M6)
+
+.PHONY: demo
+demo:  ## §6 end to end in ~60 s: both AOIs, the gate, and the refusals
+	@scripts/demo.sh
+
+.PHONY: record-demo
+record-demo:  ## re-record docs/demo.cast, then render the GIF and the MP4 from it
+	@scripts/demo.sh --record docs/demo.cast
+	@scripts/render-demo.sh
+
+.PHONY: render-demo
+render-demo:  ## re-pace and re-render docs/demo.gif + docs/demo.mp4 from the cast
+	@scripts/render-demo.sh
+
+.PHONY: check-demo
+check-demo:  ## can a human follow the video? per-row dwell + a 1 fps slice of it
+	@# Non-zero if any row is on screen for under 3 s, so it can gate a release.
+	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	  scripts/pace-demo.py docs/demo.cast $$tmp/p.cast >/dev/null && \
+	  scripts/check-demo.py $$tmp/p.cast docs/demo.mp4

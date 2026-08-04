@@ -18,7 +18,8 @@ it and their licence attached, never merged into a `Match`.
 The comparison is stronger than the spec assumed it would be. `4wings/report`
 returns gridded aggregates, which would only support "they saw N in this box and
 we saw M". But `4wings/tile/position` returns individual detections whose feature
-id is `<granule_id>;<lon>;<lat>` — and that granule is one of the six on disk. So
+id is `<granule_id>;<lon>;<lat>` — and that granule is one of the ones
+`make fetch-granules` puts on disk. So
 this is detection-for-detection over the same pixels, not a comparison of counts.
 
 Two API details that cost time and are not documented anywhere:

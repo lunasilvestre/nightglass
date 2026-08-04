@@ -40,6 +40,7 @@ from typing import Any
 import httpx
 
 from nightglass.config import settings
+from nightglass.display import call
 from nightglass.tools.base import ToolError
 
 #: Positions shown per result. The ids are always complete — they are the handle
@@ -107,7 +108,10 @@ class ChainResult:
         lines = [f"model     {self.model}", f"question  {self.question}", ""]
         for i, s in enumerate(self.steps, 1):
             args = json.dumps(s.arguments, default=str, ensure_ascii=False)
-            lines.append(f"  {i}. {s.tool}({args[:160]})")
+            # Wrapped rather than sliced: `args[:160]` followed by a closing
+            # paren produced plausible JSON that was missing a whole argument,
+            # and nothing on screen said so. See nightglass.display.
+            lines.append(call(i, s.tool, args))
             if s.error:
                 lines.append(f"     ERROR  {s.error}")
             elif s.repeated:

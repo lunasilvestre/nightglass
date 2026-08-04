@@ -134,7 +134,7 @@ COMMENT ON TABLE detect.detections IS
 -- ---------------------------------------------------------------------------
 -- The primary key IS the deduplication rule. 71% of raw DMA rows are exact
 -- multi-station rebroadcast duplicates, worst case 21 identical copies of one
--- message (measured, NOTES.md), and duplicate-weighted nearest-in-time logic is
+-- message (measured, docs/NOTES.md), and duplicate-weighted nearest-in-time logic is
 -- distorted by them. Making (mmsi, ts, lat, lon) the key means the database
 -- enforces it rather than the loader remembering to.
 --

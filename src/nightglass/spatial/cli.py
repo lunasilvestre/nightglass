@@ -2,10 +2,12 @@
 
 One entry point rather than six scripts, for the same reason `nightglass-corpus`
 is one: these are views of a single pipeline and the interesting thing is the
-seam between them. `fetch-coastline` is the only subcommand that touches the
-network, and it runs in a different image on a different network from every other
-one. Running it inside the enclave fails at DNS resolution, which is correct.
+seam between them. Four subcommands touch the network, and they run in a
+different image on a different network from every other one. Running any of them
+inside the enclave fails at DNS resolution, which is correct.
 
+    nightglass-spatial fetch-granules       ONLINE, provisioning only
+    nightglass-spatial fetch-ais            ONLINE, provisioning only
     nightglass-spatial fetch-coastline      ONLINE, provisioning only
     nightglass-spatial gfw-reference        ONLINE, provisioning only
     nightglass-spatial gfw-compare          our detector vs the published layer
@@ -104,6 +106,135 @@ def _configured_aoi_names() -> list[str]:
         for k, v in os.environ.items()
         if k.startswith("AOI_") and k.endswith("_BBOX") and v.strip()
     )
+
+
+def _roles(args: argparse.Namespace) -> tuple[str, ...]:
+    from nightglass.spatial.archive import ROLES
+
+    if args.all:
+        return ROLES
+    return tuple(args.role) if args.role else ("required",)
+
+
+def _fetch_section(args: argparse.Namespace, section_key: str, out: str) -> list:
+    """The half of `fetch-granules` and `fetch-ais` that is the same in both.
+
+    Downloads what the requested roles select, prints what it skipped and why,
+    and returns the paths. Nothing is silently omitted: a manifest entry either
+    appears in the fetch list or in the skip list.
+    """
+    from nightglass.spatial.archive import (
+        ArchiveError,
+        download,
+        earthdata_credentials,
+        load_manifest,
+    )
+
+    section = load_manifest(args.manifest, section_key)
+    wanted, skipped = section.select(_roles(args))
+    if args.name:
+        wanted = tuple(i for i in wanted if args.name in i.name)
+    if not wanted:
+        raise SystemExit(f"nothing selected. roles={_roles(args)} name={args.name!r}")
+
+    total = sum(i.bytes for i in wanted)
+    _rule(f"{section_key.upper()} — {len(wanted)} file(s), {total / 1e9:.2f} GB")
+    print(f"  {section.licence}")
+    if skipped:
+        print(f"\n  not fetched ({len(skipped)}, {sum(i.bytes for i in skipped) / 1e9:.2f} GB):")
+        for item in skipped:
+            print(f"    {item.name}")
+            print(f"      {item.role}: {item.note}")
+        print("  add --all for every entry, or --role <role> to pick.")
+    print()
+
+    auth = None
+    if section.credentials == "earthdata" and any(
+        args.force or not (Path(out) / i.name).exists() for i in wanted
+    ):
+        auth = earthdata_credentials()
+        print(f"  Earthdata as {auth[0]} — sent to {'urs.earthdata.nasa.gov'} and nowhere else\n")
+
+    paths = []
+    for item in wanted:
+        try:
+            path, outcome = download(
+                item, out, auth=auth, force=args.force, verify_cached=args.verify
+            )
+        except ArchiveError as exc:
+            print(f"\n\033[31m{exc}\033[0m", file=sys.stderr)
+            raise SystemExit(1) from exc
+        if outcome in ("cached", "verified"):
+            note = "size matches the manifest" if outcome == "cached" else "sha256 checked"
+            print(f"   {item.name[:46]:46s} {item.mb:8.1f} MB  {outcome} ({note})")
+        paths.append(path)
+    return paths
+
+
+def cmd_fetch_granules(args: argparse.Namespace) -> int:
+    """ONLINE. Provisioning only — the input that used to be staged by hand.
+
+    Weights, documents, the shoreline and the GFW layer all had a fetch target
+    from the milestone that introduced them. The granules did not, which made
+    §M6's "clone, `make up`, reproduce" false everywhere but the machine this
+    was built on. This is that step.
+    """
+    paths = _fetch_section(args, "sar", args.out)
+    print(f"\n  {len(paths)} granule(s) in {args.out}")
+    print("  next: make scenes   — catalogue them as STAC items")
+    return 0
+
+
+def cmd_fetch_ais(args: argparse.Namespace) -> int:
+    """ONLINE. Provisioning only — the Danish day the matcher is validated against.
+
+    Denmark is the validation AOI because it is the only place with free
+    point-level *historical* AIS (§3.1), and a clone with no AIS can run the
+    detector but cannot check it against anything. Downloads the daily file and
+    cuts the acquisition window out of it, because the matcher reads the day
+    twice and each pass is a full scan of 5.45 GB of CSV.
+    """
+    from nightglass.spatial.ais import acquisition_window, slice_day, slice_path
+    from nightglass.spatial.safe import SafeProduct
+
+    paths = _fetch_section(args, "ais", args.out)
+    if args.no_slice:
+        print(f"\n  {len(paths)} daily file(s) in {args.out}; --no-slice, nothing cut")
+        return 0
+
+    aoi_name, bbox = _aoi_bbox(args)
+    granule = Path(args.granule)
+    if not granule.exists():
+        print(
+            f"\n\033[33mNo granule at {granule} — cannot derive the acquisition window,\n"
+            f"so nothing was sliced. Run `make fetch-granules` first, or pass\n"
+            f"--granule/--no-slice.\033[0m",
+            file=sys.stderr,
+        )
+        return 1
+    centre = SafeProduct(granule).acquisition.acquisition_time
+    start, end = acquisition_window(centre, args.window_min)
+
+    for day in paths:
+        # `aisdk-YYYY-MM-DD.zip`. Slicing a different day against this window
+        # would write an empty CSV that looks like a successful provisioning
+        # step, so it is refused by name rather than discovered by row count.
+        if day.stem.removeprefix("aisdk-") != f"{start:%Y-%m-%d}":
+            print(f"\n  {day.name}: not the acquisition day ({start:%Y-%m-%d}) — not sliced")
+            continue
+        out = slice_path(args.slice_out, aoi_name, start, end)
+        _rule(f"slice {day.name} -> {out.name}")
+        print(f"  acquisition  {centre:%Y-%m-%d %H:%M:%S} UTC  ({granule.name[:32]}…)")
+        print(f"  window       ±{args.window_min:g} min  ->  {start:%H:%M:%S} – {end:%H:%M:%S}")
+        print(f"  bbox         {aoi_name} {bbox}")
+        if out.exists() and not args.force:
+            print(f"  cached       {out} ({out.stat().st_size / 1e6:.1f} MB)")
+            continue
+        kept, scanned = slice_day(day, out, bbox, start, end)
+        pct = 100.0 * kept / scanned if scanned else 0.0
+        print(f"  {kept:,} rows kept of {scanned:,} ({pct:.2f}%)  ->  {out}")
+        print("  duplicates are kept verbatim; DMAFileSource deduplicates on read.")
+    return 0
 
 
 def cmd_gfw_reference(args: argparse.Namespace) -> int:
@@ -399,6 +530,47 @@ def main(argv: list[str] | None = None) -> int:
                    help="keep the 149 MB download for a re-clip; off by default so the "
                         "enclave mount holds only the clipped AOIs")
     f.set_defaults(func=cmd_fetch_coastline)
+
+    def _add_manifest_args(p: argparse.ArgumentParser) -> None:
+        from nightglass.spatial.archive import ROLES
+
+        p.add_argument("--manifest", default="/app/data/sources.yaml")
+        p.add_argument(
+            "--role", action="append", choices=list(ROLES), default=None,
+            help="repeatable. default: required — everything a proof or the demo needs",
+        )
+        p.add_argument("--all", action="store_true", help="every entry, superseded included")
+        p.add_argument("--name", help="only entries whose filename contains this")
+        p.add_argument("--force", action="store_true", help="re-download even if present")
+        p.add_argument(
+            "--verify", action="store_true",
+            help="sha256 what is already on disk. Without it a cached file is checked "
+                 "by size only, because hashing 2.8 GB on every run is a cost with no "
+                 "reader.",
+        )
+
+    fg = sub.add_parser("fetch-granules", help="ONLINE. Download the Sentinel-1 granules.")
+    fg.add_argument("--out", default="/app/data/raw/sar")
+    _add_manifest_args(fg)
+    fg.set_defaults(func=cmd_fetch_granules)
+
+    fa = sub.add_parser("fetch-ais", help="ONLINE. Download the DMA day and cut the window.")
+    fa.add_argument("--out", default="/app/data/raw/ais")
+    fa.add_argument("--slice-out", default="/app/data/interim")
+    fa.add_argument(
+        "--granule",
+        default="/app/data/raw/sar/"
+        "S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13.zip",
+        help="the acquisition whose window is cut out of the day",
+    )
+    fa.add_argument("--window-min", type=float, default=30.0,
+                    help="±minutes around the acquisition. Wider than the matcher's ±11 "
+                         "on purpose: the slice is a cache of the day, and the matcher's "
+                         "own window is what decides a match.")
+    fa.add_argument("--no-slice", action="store_true", help="download only")
+    _add_aoi_args(fa)
+    _add_manifest_args(fa)
+    fa.set_defaults(func=cmd_fetch_ais)
 
     g = sub.add_parser(
         "gfw-reference",
