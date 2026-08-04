@@ -59,6 +59,31 @@ reuse the code, but because the failure modes it names (a cached file that is th
 the wrong bytes; a credential that must reach exactly one host) are the same failure modes a
 bundle verifier has.
 
+**Before you start item 1, two things measured on this machine 2026-08-04.**
+
+`go` is **not installed** — step zero is a toolchain, not a line of code. And the bundle is
+bigger than "a few images":
+
+```
+docker save  nightglass/app:dev        1.16 GB
+             nightglass/fetcher:dev    1.21 GB
+             ollama/ollama:0.32.5      8.04 GB   <- the whole cost, essentially
+             postgis/postgis:17-3.5     887 MB
+             qdrant/qdrant:v1.18.3      270 MB
+volume       nightglass_ollama_models  9.40 GB
+                                      -------
+                                      ~21 GB before a pip wheelhouse
+```
+
+`docker save` does not dedupe layers across images the way a registry does, so treat that as a
+floor. Two consequences worth deciding up front rather than discovering: whether the ollama
+*image* is even needed in the bundle when the model *blobs* are already carried separately, and
+whether `verify` streams (hash while reading, never unpack) — over 21 GB the difference between
+streaming and staging is the difference between a tool someone runs and one they avoid.
+
+Budget the session for the verify round-trip, not for the writer. Producing a tarball is an
+afternoon; proving one restores into a clean Docker context is the milestone.
+
 **2. k3s/kind deploy with a default-deny egress `NetworkPolicy`.** The spec calls this "the best
 single detail in this list" and it is right: the NetworkPolicy is the Kubernetes expression of
 the same idea `internal: true` expresses in compose, and showing the same boundary twice in two
