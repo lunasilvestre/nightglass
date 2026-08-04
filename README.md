@@ -12,6 +12,8 @@ model and the vector store all run inside the enclave; nothing calls out.
 
 Deliberately shaped as the open-source shadow of ICEYE Ocean Vision Detect.
 
+![How NIGHTGLASS works — six steps from radar echo to a cited, human-approved report](docs/how-it-works.svg)
+
 > **A dark detection is a lead, not a conclusion.** A vessel with no AIS correspondence has
 > plenty of innocent explanations — satellite revisit gaps, terrestrial receiver limits,
 > transponder failure, low-power class B sets, vessels never required to carry AIS at all. The
