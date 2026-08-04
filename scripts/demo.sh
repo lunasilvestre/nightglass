@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# EXECUTION_SPEC §6 — the demo, as a repeatable command. ~60 seconds.
+# The demo, as a repeatable command. ~60 seconds.
 #
-# §6 budgets 90. This comes in under it because the content ran out, not because
+# The budget was 90 s. This comes in under it because the content ran out, not because
 # anything was cut for time; the variable part is the ~35 s the 14B model spends
 # choosing its tools in step 2, which is live and differs run to run.
 #

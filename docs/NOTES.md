@@ -1229,7 +1229,7 @@ token <JWT>
 `curl -n` tolerates the trailing `token` key. **Python's `netrc` module does not:**
 
 ```
-netrc.NetrcParseError: bad follower token 'token' (/home/nls/.netrc, line 4)
+netrc.NetrcParseError: bad follower token 'token' (~/.netrc, line 4)
 ```
 
 Anything in the ingest path calling `netrc.netrc()` will crash. Either drop the `token` line,

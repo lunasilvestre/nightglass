@@ -1,4 +1,4 @@
-# NIGHTGLASS — the real half of the document corpus (EXECUTION_SPEC §3.3).
+# NIGHTGLASS — the real half of the document corpus.
 #
 # This file is a MANIFEST, not the documents. Nothing here is vendored into the
 # repository: `make fetch-corpus` downloads each entry at provisioning time into

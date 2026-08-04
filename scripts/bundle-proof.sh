@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EXECUTION_SPEC §M7 item 1's proof, as a repeatable command.
+# The bundle proof, as a repeatable command.
 #
 #   "Go bundler -- docker save + pip wheelhouse + model blobs -> one tarball
 #    with SHA256 manifest and a `verify` subcommand."

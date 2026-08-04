@@ -1,1 +1,1 @@
-"""FastAPI surface for the six tools of EXECUTION_SPEC §5."""
+"""FastAPI surface for the six tools."""

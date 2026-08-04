@@ -1,9 +1,9 @@
 """Bearings, distances, and the one piece of physics that makes the match work.
 
-EXECUTION_SPEC §5: *"`ais_match` should account for the offset between AIS report
+The design contract: *"`ais_match` should account for the offset between AIS report
 time and image acquisition — a vessel moves in between. That's the substance of
 the fusion problem, and collapsing it to a naive point-in-polygon throws away the
-interesting part."* §3.2 names the harder half of the same problem:
+interesting part."* And the harder half of the same problem:
 
 > **Azimuth displacement** — moving ships are shifted along-track by hundreds of
 > metres. A symmetric match radius manufactures false darks. Make the tolerance

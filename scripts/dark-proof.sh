@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EXECUTION_SPEC §M3's proof, as a repeatable command.
+# The dark-vessel proof, as a repeatable command.
 #
 #   "Done when: one SQL query returns detections with no AIS correspondence
 #    inside a space-time window."

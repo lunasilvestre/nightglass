@@ -3,7 +3,7 @@
 # One network, `enclave`, declared `internal: true`. Every application service
 # sits on it and nothing else. That single flag is the whole air-gap claim:
 # Docker attaches no default route and no NAT rule, so there is no path to the
-# internet to misconfigure. EXECUTION_SPEC §M1 proves it from inside.
+# internet to misconfigure. `make air-gap-proof` proves it from inside.
 #
 # Two consequences that look like mistakes and are not:
 #

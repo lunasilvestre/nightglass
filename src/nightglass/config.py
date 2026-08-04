@@ -1,6 +1,6 @@
 """Configuration — the only place an AOI is allowed to be named.
 
-EXECUTION_SPEC §3.1 makes this a hard design requirement rather than a nicety:
+This is a hard design requirement rather than a nicety:
 two AOIs, one codebase, swap by config. Portugal is the demo AOI, Denmark the
 validation AOI, and the difference between them is data availability, not code.
 That is also what "deploy into customer environments" means in practice.

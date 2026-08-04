@@ -1,4 +1,4 @@
-"""Document RAG — EXECUTION_SPEC §M2.
+"""Document RAG.
 
 Ingest corpus -> chunk -> embed with bge-m3 -> Qdrant, then retrieval that
 returns chunks carrying their document ID, title and classification marking, and

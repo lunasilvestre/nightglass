@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EXECUTION_SPEC §M1's proof, as a repeatable command.
+# The air-gap proof, as a repeatable command.
 #
 #   "docker compose exec api curl -m 5 https://example.com fails while a chat
 #    completion against Ollama succeeds, in the same session."

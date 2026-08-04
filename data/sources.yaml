@@ -2,7 +2,7 @@
 #
 # `data/` is 6.2 GB of SAR and AIS and it is gitignored. This file is the part
 # that IS committed: where every byte came from, how big it is, and what it
-# hashes to. It is what makes EXECUTION_SPEC §M6 — "someone else could clone,
+# hashes to. It is what makes "someone else could clone,
 # `make up`, and reproduce the demo" — true rather than true-on-one-machine.
 #
 #   make fetch-granules   reads `sar:`   (Earthdata login, EULA accepted)

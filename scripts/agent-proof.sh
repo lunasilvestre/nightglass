@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EXECUTION_SPEC §M5's proof, as a repeatable command.
+# The agent proof, as a repeatable command.
 #
 #   "Done when: an analyst question runs through to a drafted INTREP,
 #    halts at the gate, resumes on approval."

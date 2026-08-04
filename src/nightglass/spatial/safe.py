@@ -9,8 +9,8 @@ GDAL's ``/vsizip/`` reads the measurement TIFF straight out of the archive, so
 six granules cost 4.7 GB instead of 33 GB and nothing has to be cleaned up
 afterwards. Verified on all six.
 
-**Do not hand-parse the geolocation grid for georeferencing.** PRE_DEV_GUIDE §6
-says to build GCPs from ``annotation/*.xml``; GDAL has already done it, and
+**Do not hand-parse the geolocation grid for georeferencing.** The tempting route
+is to build GCPs from ``annotation/*.xml`` by hand; GDAL has already done it, and
 ``rasterio`` hands over all 210 tie points as ``src.gcps``. ``src.crs`` is
 ``None`` and ``src.transform`` is the identity — both expected, because a GRD
 product is not map-projected.

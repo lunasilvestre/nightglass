@@ -1,7 +1,7 @@
 # NIGHTGLASS
 #
 # `make up` is the entry point and must stay a single command that works on a
-# fresh clone — EXECUTION_SPEC §M6 is literally "someone else could clone,
+# fresh clone — the reproducibility bar is literally "someone else could clone,
 # make up, and reproduce the demo".
 
 SHELL := /bin/bash

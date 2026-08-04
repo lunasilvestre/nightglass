@@ -19,19 +19,18 @@ Deliberately shaped as the open-source shadow of ICEYE Ocean Vision Detect.
 > transponder failure, low-power class B sets, vessels never required to carry AIS at all. The
 > system surfaces candidates. The analyst adjudicates.
 
-**Status: M6 — packaged, plus the first of §M7's optional items.** The enclave stands up and is sealed (M0), runs inference
-offline (M1), answers from a 60-document corpus with every claim traced to a retrievable chunk
-or refuses (M2), runs its own vessel detector over real Sentinel-1 pixels and correlates the
-detections against real AIS in space *and* time (M3), serves all six [`EXECUTION_SPEC.md`](docs/EXECUTION_SPEC.md) §5
-tools over both HTTP and MCP (M4), runs a LangGraph agent that halts at a human gate and
-resumes in a different container (M5), and fetches every byte it needs from a checksummed
-manifest, so a clone reproduces the demo rather than reading about it (M6) — and now carries the
-whole of itself across an air gap in one tarball that a static Go binary refuses six ways before
-it will restore (§M7). Over the Danish
-validation AOI, 21 of 35 detections match a vessel that was actually there at a median 104 m,
-and every AIS vessel over 200 m inside the scene footprint is recovered. The local 14B model
-chains three tools unaided from a plain analyst question; Claude Code drives the same tools over a
-pipe from outside the enclave. [`docs/NOTES.md`](docs/NOTES.md) is the running decision log.
+**What a clone gets you.** The enclave stands up sealed and runs inference offline. Answers
+come from a 60-document corpus with every claim traced to a retrievable chunk — or a refusal.
+A vessel detector runs over real Sentinel-1 pixels and its detections are correlated against
+real AIS in space *and* time. Six typed tools are served over both HTTP and MCP; a LangGraph
+agent chains them, halts at a human gate, and resumes in a different container. Every byte of
+input is fetched against a checksummed manifest, so a clone reproduces the demo rather than
+reading about it — and the whole system crosses an air gap in one tarball that a static Go
+binary refuses six ways before it will restore. Over the Danish validation AOI, 21 of 35
+detections match a vessel that was actually there at a median 104 m, and every AIS vessel over
+200 m inside the scene footprint is recovered. The local 14B model chains three tools unaided
+from a plain analyst question; Claude Code drives the same tools over a pipe from outside the
+enclave. [`docs/NOTES.md`](docs/NOTES.md) is the running decision log.
 
 ---
 
@@ -41,36 +40,18 @@ pipe from outside the enclave. [`docs/NOTES.md`](docs/NOTES.md) is the running d
 
 One command, `scripts/demo.sh`, and nothing in it is staged: the 14B model picks its own tools
 while the recording runs, and every number comes out of PostGIS and the SAR pixels as you watch.
-It takes **57 s live**, inside the spec's 90-second budget without being padded to fill it.
+It takes **57 s live**.
 
 **▶ [`docs/demo.mp4`](docs/demo.mp4)** — 4.0 MB, H.264, 49 s, play and pause. This is the one to
 watch.
 
-The video is **retimed, not re-run**. A recording made by a machine is paced for a machine, and
-this one had both failure modes at once: 30.5 s of frozen screen while the model chose its
-tools, then 33 lines — a whole 34-row screen — arriving in a single event and scrolling away
-before anyone could read them. `scripts/pace-demo.py` rewrites the timestamps and **not one byte
-of the content**; it refuses to write a file whose output stream differs from the source. Long
-waits are capped at 2.5 s so a slow step still reads as slow, and nothing is allowed to scroll
-off the top until it has been on screen for 4.5 s.
+The video is **retimed, not re-run**: `scripts/pace-demo.py` rewrites timestamps only — not one
+byte of the content — and refuses to write a file whose output stream differs from the source,
+so what you see is the real run at a readable pace. The GIF above is the same timeline at a
+lower frame rate; [`docs/demo.cast`](docs/demo.cast) is the untouched real-time recording to
+check both against (`asciinema play docs/demo.cast`).
 
-That floor is measured rather than asserted. `scripts/check-demo.py` reports the dwell of every
-one of the 167 rows, and independently slices the encoded video at 1 fps to see how much of the
-screen is replaced from one second to the next:
-
-```
-per-row dwell     min 4.50 s   p05 4.50 s   median 8.81 s   max 16.48 s
-one-second slice  median 14.1% of screen replaced, p95 21.0%, max 26.1%
-```
-
-It exits non-zero if any row drops under three seconds, so `make render-demo` cannot finish on a
-video nobody can follow.
-
-The GIF above is the same paced timeline at a lower frame rate for inline viewing.
-[`docs/demo.cast`](docs/demo.cast) is the recording itself — 10 KB of JSON, untouched, real
-time — and the artifact to check the other two against (`asciinema play docs/demo.cast`).
-
-The spec says record over the Lisbon AOI. The Lisbon AOI has **no AIS**, and that is not an
+The recording runs over the Lisbon AOI. The Lisbon AOI has **no AIS**, and that is not an
 oversight — Denmark is the only European state publishing free point-level *historical* AIS,
 which is exactly why it is the validation AOI. So the recording shows both, in the order an
 analyst meets them: Lisbon takes the question and produces 71 detections with the verdict
@@ -145,10 +126,9 @@ Two consequences follow, and both are deliberate:
   carries 713 KB of shoreline rather than a 149 MB archive, and 69 detections rather than a
   global layer.
 
-  The two data fetchers were the last to be written, and their absence was the last thing
-  standing between this repository and *reproducible*. Granules and AIS had been staged by hand
-  during pre-dev; `data/` is gitignored; so every number below was true and none of it could be
-  regenerated anywhere but on one machine. [`data/sources.yaml`](data/sources.yaml) is the
+  The two data fetchers exist because without them this repository was not *reproducible*:
+  granules and AIS had originally been staged by hand, and `data/` is gitignored — so every
+  number below was true and none of it could be regenerated anywhere but on one machine. [`data/sources.yaml`](data/sources.yaml) is the
   committed half — a URL, a byte count and a sha256 for all eight external files — and the
   fetchers refuse anything that hashes differently. A number you cannot trace to a byte is a
   number you are asking to be taken on trust.
@@ -176,13 +156,13 @@ make fetch-ais            # once, 890 MB   │
 make fetch-coastline      # once, 149 MB   │ (149 MB in, 713 KB kept)
 make fetch-gfw            # once, ~70 detections ┘ the cross-check layer
 make ingest               # chunk + embed the corpus into Qdrant (~1 min, offline)
-make air-gap-proof        # §M1: no egress, inference works anyway
-make rag-proof            # §M2: ungrounded vs grounded, and the refusal path
-make dark-proof           # §M3: detector, AIS, the space-time join, and the renders
-make tool-proof           # §M4: the tools over MCP, and the local model chaining them
-make agent-proof          # §M5: halts at the human gate, resumes in a different container
-make demo                 # §6:  the recording above, live, ~60 s
-make bundle-proof         # §M7: the transfer bundle — four refusals, and a restore
+make air-gap-proof        # no egress, inference works anyway
+make rag-proof            # ungrounded vs grounded, and the refusal path
+make dark-proof           # detector, AIS, the space-time join, and the renders
+make tool-proof           # the tools over MCP, and the local model chaining them
+make agent-proof          # halts at the human gate, resumes in a different container
+make demo                 # the recording above, live, ~60 s
+make bundle-proof         # the transfer bundle — four refusals, and a restore
 ```
 
 `make` with no target lists everything.
@@ -194,8 +174,7 @@ password on its own produces a redirect loop rather than a 401 — and `fetch-gf
 Every fetch is checksummed against [`data/sources.yaml`](data/sources.yaml), resumes a partial
 download, and re-runs as a no-op; `make fetch-granules VERIFY=1` re-hashes what is already on
 disk instead of trusting its size. The default set is 2.8 GB — everything the proofs and the
-demo need. `ALL=1` adds the two granules of a first attempt that pointed at the wrong orbit,
-which are kept in the manifest because the mistake is worth being able to look at.
+demo need; `ALL=1` fetches the full manifest.
 
 **On this machine**, the host runs ollama as a systemd service with `OLLAMA_KEEP_ALIVE=-1`,
 which pins ~15 GB of the 3090 permanently and leaves the enclave's own ollama unable to load a
@@ -314,8 +293,8 @@ reports vessel detections off Madeira, and adding one would quietly delete this 
 reason this repository no longer demonstrates. It was chosen because deployments are national
 and a corpus and its queries will not always share a language; six memos were originally drafted
 in another language to exercise that, and they have since been rewritten in English. The
-measured cross-language separation that justified the choice is recorded in `docs/NOTES.md` (0.842
-cosine against a translated equivalent, 0.283 against unrelated text in the same language), and
+measured cross-language separation that justified the choice (0.842 cosine against a translated
+equivalent, 0.283 against unrelated text in the same language) still holds, but
 nothing in the shipped corpus exercises it today. Stated plainly rather than left as an
 unsupported claim.
 
@@ -413,7 +392,7 @@ The 8% on sub-25 m craft is not a defect — it is 10 m pixels meeting a 20 m hu
 
 ### The correction that makes the match work
 
-§5 asks the matcher to account for the offset between AIS report time and image acquisition.
+The matcher has to account for the offset between AIS report time and image acquisition.
 There are two offsets, and keeping them apart is the substance of the fusion problem:
 
 **Time.** A vessel at 12 kn covers 3.7 km inside a ±11 min window, so "nearest report in time"
@@ -542,7 +521,7 @@ extra sensitivity or extra false alarms, not double counting.
 
 Denmark settled the question properly afterwards, and cheaper: 45 matched detections there
 resolved to **18 distinct MMSIs**, and clustering at 100–300 m produced zero groups containing
-more than one vessel. See NOTES finding 46 — the ground truth was on the bench the whole time.
+more than one vessel. The ground truth was on the bench the whole time.
 
 Two detectors agreeing is weaker evidence than the AIS validation banked over Denmark — it says
 the detector generalises, not that either is right, and the tool prints that sentence every time
@@ -589,7 +568,7 @@ The interesting decisions in this graph are about where the model is kept *out*.
 | node | who decides | why |
 |---|---|---|
 | `parse` | model | language, lookback, whether documents are needed — all recoverable if wrong |
-| | **not** the model | **the bbox.** §3.1 makes the AOI configuration. A model inventing one searches the wrong ocean and returns cleanly |
+| | **not** the model | **the bbox.** The AOI configuration decides it. A model inventing one searches the wrong ocean and returns cleanly |
 | `plan` | nobody | facts about config and the database, all checkable |
 | `tools` | model | which documentary context the report needs — bounded, with the max-iteration and repeat guards |
 | `correlate` | nobody | runs deterministically over the configured AOI whatever the model did |
@@ -597,7 +576,7 @@ The interesting decisions in this graph are about where the model is kept *out*.
 | `HUMAN_GATE` | the human | the only path to `releasable=True` |
 | `release` | nobody | prose assembled from the report's own fields |
 
-That split is a fix for a measured failure, not caution for its own sake. At M4 the model got
+That split is a fix for a measured failure, not caution for its own sake. In early testing the model got
 every per-scene count right, listed thirty real detection ids, and still summarised them as "of
 the 60 detections … 15 were not" — conflating two scenes. No prompt fixes that reliably, so the
 released answer is not generated: every line comes from a `Claim` or a computed caveat.
@@ -619,8 +598,8 @@ The prompt layer and the schema layer both let it through. The check caught it.
   is dominated by clutter and isolated false alarms this pipeline has not separated from vessels.
 - **That 40% used to read 25%, and the correction made it worse.** 45 matched detections over
   the Kattegat resolved to **18 distinct MMSIs** — one ship accounting for six of them — so the
-  old denominator was padded with duplicates of vessels that *did* match. Merging them (§
-  `DetectorConfig.merge_radius_m`, validated by AIS: zero clusters mix MMSIs at 100–300 m)
+  old denominator was padded with duplicates of vessels that *did* match. Merging them
+  (`DetectorConfig.merge_radius_m`, validated by AIS: zero clusters mix MMSIs at 100–300 m)
   collapses matched detections 45 → 21 while unmatched barely moves, 15 → 14. Which is itself
   informative: the unmatched residue is *isolated*, not fragments of real ships.
 - **No AIS is loaded for Portugal, and the tools refuse rather than guess.** `ais_match` raises
@@ -645,8 +624,8 @@ The prompt layer and the schema layer both let it through. The check caught it.
 called over that transport, the local 14B model chaining three tools unaided, and the report
 refusing to state the one number it must not.
 
-The six §5 tools live in `src/nightglass/tools/` and are defined once. FastAPI serves them over
-HTTP, FastMCP serves the same functions over MCP, and the M5 agent will call them in-process. A
+The six tools live in `src/nightglass/tools/` and are defined once. FastAPI serves them over
+HTTP, FastMCP serves the same functions over MCP, and the agent calls them in-process. A
 tool that existed twice would be a tool that behaved differently depending on who asked.
 
 ### The boundary is crossed by a pipe, not a port
@@ -772,7 +751,7 @@ byte-identical on id, position, length, heading and confidence, in 0.9 s against
 
 **`correlate` is bounded to one scene per call.** Reading a granule takes 14–20 s. The
 alternative — return a run id and let the client poll — needs a job table and a lifecycle, which
-is the hidden state §5 rules out. Scenes the search found but did not correlate come back
+is exactly the kind of hidden state the tool contracts rule out. Scenes the search found but did not correlate come back
 carrying a note saying so and how to select them, so the bound is visible in the result.
 
 ---
@@ -791,7 +770,7 @@ make bundler          # build the static binary — the host never needs Go
 make bundle           # ~18 GB: images, model blobs, wheels, granules, the AIS day
 make verify-bundle    # stream it, check every byte against its own manifest
 make restore-bundle   # verify, then docker load and place the data
-make bundle-proof     # §M7: the whole round trip on a 100 MB fixture, ~60 s
+make bundle-proof     # the whole round trip on a 100 MB fixture, ~60 s
 ```
 
 **It is Go, and not because Go is pleasant.** The thing that unpacks an air-gapped bundle cannot
@@ -826,7 +805,7 @@ agree, which catches a corrupt blob one way and a doctored manifest the other.
 
 The failure that matters is not corruption. It is a bundle that streams cleanly to EOF and is
 quietly **missing** something — because every check that asks "is what is here correct?" passes
-on it. That is [finding 55](docs/NOTES.md)'s shape, truncation that looks like completion, in
+on it. Truncation that looks like completion is the worst shape of failure to have in
 the one tool whose entire job is to say *this is complete*.
 
 | | refuses |
@@ -869,12 +848,12 @@ Measured on the real thing — 144 entries, **18,079,023,616 bytes**, built in 4
 result the streaming design was for. Treat it as a floor: the archive had just been written and
 some of it was still in page cache.
 
-`docs/HANDOVER_M7.md` budgeted ~21 GB for this and named the ollama image as "the whole cost,
-essentially". Both came from the `docker images` SIZE column, which reports the *unpacked*
+The working estimate had budgeted ~21 GB for this and named the ollama image as "the whole cost,
+essentially". Both numbers came from the `docker images` SIZE column, which reports the *unpacked*
 snapshot; `docker save` writes the compressed layers, and the two differ by 2.9× — the five
 stack images are 11.57 GB by that column and **4.02 GB** in an archive. The real cost centre is
 the model blobs at **56%**, and nothing can be done about those because GGUF is already
-quantised. Recorded as [finding 57](docs/NOTES.md) because a number copied out of a tool's
+quantised. Worth writing down: a number copied out of a tool's
 summary column is a measurement of that column.
 
 Each image entry also records the ref, the local image ID and the `repo_digest` Docker reports.
@@ -891,8 +870,8 @@ it does not carry. `create` refuses if it is missing from `--images`.
 Three files in the model volume do **not** travel. `id_ed25519` is an OpenSSH private key, mode
 600 — Ollama's instance identity; bundling it would ship one private key to every site that
 restores this, and a fresh Ollama generates its own on first run. `id_ed25519.pub` goes with it,
-and `cache/model-recommendations.json` is the residue of [finding 14](docs/NOTES.md)'s
-ollama.com call — a cache, and a trace of the one outbound path the enclave exists to prevent.
+and `cache/model-recommendations.json` is the residue of an ollama.com call made before the
+enclave was sealed — a cache, and a trace of the one outbound path the enclave exists to prevent.
 `make bundle-proof` asserts the archive contains no `id_ed25519`, rather than trusting that the
 exclusion stayed written.
 
@@ -903,13 +882,13 @@ exclusion stayed written.
 | Choice | Reason |
 |---|---|
 | **Ollama inside the enclave, not the host service** | The host has ollama on `:11434` with the models already pulled, and pointing compose at it would save re-downloading ~10 GB. It also needs `host.docker.internal:host-gateway` — a deliberate hole in the exact boundary this project exists to demonstrate — and it breaks "clone and `make up`". The model server belongs *inside* the enclave because in a real deployment there is no host to borrow from. Cost is paid once via `make pull-models`. |
-| Ollama over vLLM / TGI+TEI | **One service serves chat *and* embeddings**; vLLM and TGI are one-model-per-process and would need two containers. Ollama supports fully air-gapped operation, while vLLM needs network configuration to reach full isolation — which is the whole milestone. Models are content-addressed blobs in one directory, so the offline bundle is a tar of a folder, not an untangling of a HuggingFace cache — of `models/` only, as it turned out, because the volume also holds the instance's own SSH private key and that must not travel. Honest limit: Ollama serialises concurrent requests and vLLM does ~3.2× the throughput. Irrelevant for one analyst. The line is *"Ollama for the enclave, vLLM if this became multi-tenant."* |
+| Ollama over vLLM / TGI+TEI | **One service serves chat *and* embeddings**; vLLM and TGI are one-model-per-process and would need two containers. Ollama supports fully air-gapped operation, while vLLM needs network configuration to reach full isolation — which is the whole point here. Models are content-addressed blobs in one directory, so the offline bundle is a tar of a folder, not an untangling of a HuggingFace cache — of `models/` only, as it turned out, because the volume also holds the instance's own SSH private key and that must not travel. Honest limit: Ollama serialises concurrent requests and vLLM does ~3.2× the throughput. Irrelevant for one analyst. The line is *"Ollama for the enclave, vLLM if this became multi-tenant."* |
 | Qdrant over pgvector | Single binary, trivial offline deploy, no external dependencies. pgvector is already familiar from production work; Qdrant shows breadth and is a common air-gapped default. |
 | bge-m3 for embeddings | Genuinely multilingual. Measured: a query against its translated equivalent scores **0.842** cosine, against unrelated text in the same language **0.283** — a 0.56 separation, so it keys on meaning rather than language. Deployments are national and a corpus will not always share a language with its queries; the shipped corpus is now all English, so this is insurance rather than a demonstrated feature. One-way, since changing it means re-embedding everything. |
 | Qwen2.5 **14B** at q4_K_M | Fits consumer VRAM (~9 GB weights, ~15 GB resident with a 32k KV cache, on a 24 GB card), strong tool-calling, permissive licence. Verified chaining three distinct tools unprompted from a plain analyst question. |
 | LangGraph over CrewAI | An explicit state machine with a genuinely interruptible node, which the human-in-the-loop gate needs. State persists and is inspectable while halted — a bare `input()` only blocks a thread. |
 | PostGIS for geometry | Spatial correlation belongs in a spatial database, not in Python. The dark-vessel join is one query in `src/nightglass/spatial/sql/dark_vessels.sql` — track interpolation via `LEAD`, the azimuth-displacement correction via `ST_Project`, distances via `geography` casts so they come back in metres rather than degrees. It stays a `.sql` file so it can be read top to bottom and run a CTE at a time. |
-| Scene as a STAC Item, not a bespoke table | `stac_search` (§5) is a catalogue query. Modelling the catalogue as STAC keeps the door open to pointing the same tool at a real STAC API — which is what a customer deployment has — rather than at a table only this project understands. The Item is stored whole in `jsonb`; the columns beside it are extracted for indexing. |
+| Scene as a STAC Item, not a bespoke table | `stac_search` is a catalogue query. Modelling the catalogue as STAC keeps the door open to pointing the same tool at a real STAC API — which is what a customer deployment has — rather than at a table only this project understands. The Item is stored whole in `jsonb`; the columns beside it are extracted for indexing. |
 | A shoreline is a fourth provisioning input | Weights, documents, granules — and now GSHHG. The detector's own land mask structurally cannot separate a 100 m skerry from a 100 m hull, so an air-gapped deployment genuinely has to ship a coastline with it. Saying that is a better answer to "what does this need bundled" than pretending the list was three items long. |
 | A committed manifest, gitignored bytes | `data/sources.yaml` carries a URL, a size and a sha256 for every external input; `data/` carries none of them. The fetchers verify against it and refuse a mismatch, so "the numbers in this README" and "the bytes on your disk" are the same claim. It is also what makes the two data fetchers auditable rather than trusted: a reviewer can check what they are pointed at without running them. |
 | The bundler is Go, and the manifest is the first member | A static `CGO_ENABLED=0` binary is *why* Go is here rather than a sixth Python entry point: the thing that unpacks an air-gapped bundle cannot itself need a Python environment to exist first, and `make bundle-proof` runs it inside a `docker:dind` container that has no Python and no Go in order to show that rather than assert it. The host needs no Go either — it is built in `golang:1.26-alpine` and copied out, the way `make test` runs pytest in a container. Putting `MANIFEST.json` first is what makes `verify` one sequential pass: no seeking, no staging, one megabyte of memory across 18 GB, so a bundle can be checked on a pipe as it comes off the medium. The cost lands on `create`, which must read everything before it can write the first member — the right side to put it on, since create runs once per bundle and verify runs every time one moves. |
@@ -970,8 +949,8 @@ Stated before being asked, because each one was tested rather than assumed.
   excluded, because matching a detection to a navigation buoy would report a fixed installation
   as a vessel that had declared itself. The consequence is the honest one and it runs the other
   way: a detection sitting on a lit beacon is reported **unmatched**, and is part of the 40%.
-  This rule was missing from the code until M6 — the hand-cut CSV used through M3–M5 had it
-  baked in and nothing said so, which is finding 50 and much of the argument for the fetchers.
+  This rule was originally missing from the code — the hand-cut CSV used through early
+  development had it baked in and nothing said so, which is much of the argument for the fetchers.
 - **`make fetch-ais` will eventually stop working, and the code cannot fix it.** The DMA S3
   bucket serves daily files on a rolling window of roughly eighteen months. `aisdk-2026-07-17`
   is inside it today; when it ages out, the Danish validation becomes unreproducible from this
@@ -1010,8 +989,8 @@ Stated before being asked, because each one was tested rather than assumed.
 - **The refusal path catches unsupported claims, not wrong ones.** A claim that cites a real
   chunk which does not actually say what the claim says would survive verification. Guarding
   that needs an entailment check against the cited span, which is on the three-weeks list.
-- **The bundle's wheelhouse does not make the image rebuildable offline.** §M7 words the bundler
-  as "`docker save` + pip wheelhouse + model blobs", which invites the reading that the three
+- **The bundle's wheelhouse does not make the image rebuildable offline.** Describing the bundler
+  as "`docker save` + pip wheelhouse + model blobs" invites the reading that the three
   together reconstitute the system from source. They do not. The runtime image also needs
   `curl`, `ca-certificates` and `libexpat1`, plus `poppler-utils` in the fetcher stage, and a
   wheelhouse pins none of them — an offline `docker build` would still go looking for a Debian
@@ -1021,8 +1000,8 @@ Stated before being asked, because each one was tested rather than assumed.
 - **`nightglass-bundle verify` proves integrity, not authenticity.** It proves the bundle you
   have is the bundle that was built, given one manifest digest you obtained by another route. It
   says nothing about who built it, and there is no signature anywhere in the format.
-- **A genuinely cold `make pull-models` is still untested**, open since M1 and unchanged by any
-  of this. The bundle routes around it — a site restoring from one never runs the pull path — so
+- **A genuinely cold `make pull-models` is still untested** — a long-standing gap unchanged by
+  any of this. The bundle routes around it — a site restoring from one never runs the pull path — so
   the gap is now less likely to be hit and exactly as real as it was.
 - **Dark ≠ guilty.** See the framing at the top.
 
@@ -1081,7 +1060,7 @@ bundler/                  Go. the offline transfer bundle — a second language,
   cmd/bundle/main.go      nightglass-bundle create|verify|restore|inspect
   internal/manifest/      the manifest, and every way it can be internally incoherent
   internal/bundle/        create · verify · restore — one streaming pass, six refusals
-  internal/sources/       reads data/sources.yaml, so a bundle cannot outrun M6's manifest
+  internal/sources/       reads data/sources.yaml, so a bundle cannot outrun the manifest
   internal/dockercli/     docker save · load · the volume round trip, over os/exec
 corpus/
   sources.yaml            manifest of the 39 public documents — URLs, not documents
@@ -1089,14 +1068,14 @@ corpus/
   README.md               what the corpus is, licences, and the deliberate gap
 src/nightglass/
   config.py               AOI resolution — the only place a bbox is named
-  schemas.py              the §5 tool contracts, with provenance attached
+  schemas.py              the six tool contracts, with provenance attached
   display.py              wrapping — the two renderers that show a model at work
   rag/
     fetch.py              ONLINE. the only module here that opens an outward socket
     extract.py            pdf · markdown · activation JSON -> text worth embedding
     chunking.py           structure-aware, heading-path aware, stable chunk ids
     embed.py              bge-m3 via the enclave's own ollama
-    index.py              Qdrant: ingest, and §5's doc_search
+    index.py              Qdrant: ingest, and doc_search
     answer.py             grounded generation, citation verification, refusal
     cli.py                nightglass-corpus fetch|ingest|search|ask|stats
   spatial/
@@ -1108,7 +1087,7 @@ src/nightglass/
     ais.py                source adapters — DMAFileSource · GFW · CustomerFeedSource
     db.py                 PostGIS access; the SQL lives in files, not f-strings
     sql/001_schema.sql    stac.scenes · detect.runs+detections · ais.positions
-    sql/dark_vessels.sql  §M3's join — interpolate, correct, match. Readable on its own.
+    sql/dark_vessels.sql  the dark-vessel join — interpolate, correct, match. Readable on its own.
     gfw.py                ONLINE fetch of GFW's published detections; the cross-check
     render.py             chips, scene overview, map view — the evidence
     plots.py              validation charts
@@ -1116,7 +1095,7 @@ src/nightglass/
     cli.py                nightglass-spatial fetch-granules|fetch-ais|scenes|detect|dark|…
   tools/
     spatial.py            stac_search · detect_vessels · ais_match · correlate
-    documents.py          doc_search — the M2 retriever behind the same boundary
+    documents.py          doc_search — the RAG retriever behind the same boundary
     intrep.py             draft_intrep, and the two-sided guard on the rate
     chaining.py           the local model driving the tools; max-iters + repeat detector
     cli.py                nightglass-tools list|call|chain
@@ -1129,12 +1108,9 @@ data/
   sources.yaml            COMMITTED. url + bytes + sha256 for all 6.2 GB of it
   raw/ interim/ out/      gitignored — the granules, the AIS, the rendered evidence
 docs/
-  EXECUTION_SPEC.md       what to build
-  PRE_DEV_GUIDE.md        verified data access paths
-  NOTES.md                decisions, corrections, measurements — 60 numbered findings
-  HANDOVER_M6.md          the brief M6 was built from, and what came of it
-  HANDOVER_M7.md          what is left, and why it is optional
-  superpowers/specs/      the bundler's design, written before it was built
+  NOTES.md                decisions, corrections, measurements — the numbered findings
+  design/                 the bundler's design, written before it was built
+  how-it-works.svg        the six-step explainer — start here
   demo.cast · demo.mp4 · demo.gif    the walkthrough: record, watch, embed
   evidence/               committed renders — the snapshot the numbers come from
 ```

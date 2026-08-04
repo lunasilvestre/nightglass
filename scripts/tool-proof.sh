@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EXECUTION_SPEC §M4's proof, as a repeatable command.
+# The tool-layer proof, as a repeatable command.
 #
 #   "Done when: the tools are callable over MCP from Claude Desktop, *and* the
 #    local Qwen model chains at least three of them to answer a query."

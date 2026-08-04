@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# EXECUTION_SPEC §M2's proof, as a repeatable command.
+# The RAG proof, as a repeatable command.
 #
 #   "a question returns an answer whose factual claims map to retrievable chunk
 #    IDs, and an unanswerable question produces an explicit 'not supported by

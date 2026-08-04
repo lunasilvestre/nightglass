@@ -22,7 +22,7 @@
 # takes GFW_TOKEN, both declared with no value so compose forwards the name
 # and this repo holds no secret. The enclave services take none of them: they
 # run on an `internal: true` network, so a credential in there would be
-# useless anyway -- see docs/EXECUTION_SPEC.md §M1.
+# useless anyway.
 #
 # If you ever find yourself adding one of these to `api`, `mcp` or `agent`,
 # stop: it means something inside the enclave is trying to reach the network.
