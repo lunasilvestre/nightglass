@@ -19,7 +19,7 @@ export HOST_GID := $(shell id -g)
 .PHONY: help
 help:  ## show this help
 	@awk 'BEGIN {FS = ":.*##"; print "NIGHTGLASS\n"} \
-	     /^[a-zA-Z_-]+:.*?##/ { printf "  \033[1m%-18s\033[0m %s\n", $$1, $$2 } \
+	     /^[a-zA-Z0-9_-]+:.*?##/ { printf "  \033[1m%-18s\033[0m %s\n", $$1, $$2 } \
 	     /^##@/ { printf "\n\033[2m%s\033[0m\n", substr($$0, 5) }' $(MAKEFILE_LIST)
 
 ##@ Running
@@ -37,8 +37,9 @@ up: preflight  ## build and start the enclave, wait for healthy
 	@echo "Enclave up."
 	@echo "  once:   make pull-models (10 GB)  fetch-corpus (35 MB)  fetch-granules (2.8 GB)"
 	@echo "          make fetch-ais (890 MB)   fetch-coastline       fetch-gfw     then ingest"
-	@echo "  proof:  make air-gap-proof (M1)  rag-proof (M2)  dark-proof (M3)  tool-proof (M4)"
-	@echo "  demo:   make demo         §6 end to end, both AOIs, ~60 s"
+	@echo "  proof:  make air-gap-proof  rag-proof  dark-proof  tool-proof  agent-proof"
+	@echo "          make bundle-proof  k8s-proof"
+	@echo "  demo:   make demo         end to end, both AOIs, ~60 s"
 
 .PHONY: down
 down:  ## stop the enclave, keep volumes
@@ -129,7 +130,7 @@ fetch-gfw:  ## fetch GFW's published detections as a cross-check layer (M6). Nee
 ##@ Verification
 
 .PHONY: air-gap-proof
-air-gap-proof:  ## §M1: prove no egress while inference still works
+air-gap-proof:  ## prove no egress while inference still works
 	@scripts/air-gap-proof.sh
 
 .PHONY: test
@@ -176,12 +177,12 @@ ask-docs:  ## grounded, cited answer. make ask-docs Q="what is a dark vessel?"
 	$(COMPOSE) exec api nightglass-corpus ask "$(Q)" --sources
 
 .PHONY: rag-proof
-rag-proof:  ## §M2: same question ungrounded vs grounded, plus the refusal path
+rag-proof:  ## same question ungrounded vs grounded, plus the refusal path
 	@scripts/rag-proof.sh
 
 ##@ Spatial  (M3)
 
-# The Danish scene and its AIS day. Denmark is the validation AOI (§3.1): it is
+# The Danish scene and its AIS day. Denmark is the validation AOI: it is
 # the only one with free point-level historical AIS, so it is the only place a
 # claim about the matcher can be checked rather than asserted.
 DK_SCENE ?= /app/data/raw/sar/S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13.zip
@@ -208,7 +209,7 @@ load-ais:  ## load AIS for the acquisition window into PostGIS
 	$(SPATIAL) load-ais $(or $(AIS),$(DK_AIS)) --granule $(or $(SCENE),$(DK_SCENE))
 
 .PHONY: dark
-dark:  ## §M3's query — detections with no AIS correspondence
+dark:  ## the dark-vessel query — detections with no AIS correspondence
 	$(SPATIAL) dark $(or $(SCENE_ID),$(notdir $(basename $(or $(SCENE),$(DK_SCENE)))))
 
 .PHONY: validate-shift
@@ -220,7 +221,7 @@ render:  ## chips, scene overview and map view into data/out/
 	$(SPATIAL) render $(or $(SCENE),$(DK_SCENE))
 
 .PHONY: dark-proof
-dark-proof:  ## §M3 end to end: schema, scene, detections, AIS, the query, the evidence
+dark-proof:  ## end to end: schema, scene, detections, AIS, the query, the evidence
 	@scripts/dark-proof.sh
 
 .PHONY: gfw-compare
@@ -260,7 +261,7 @@ reject:  ## M5: resume and withhold. make reject T=ng-... NOTE="why"
 	$(AGENT) reject $(T) $(if $(NOTE),--note "$(NOTE)",)
 
 .PHONY: agent-proof
-agent-proof:  ## §M5 end to end: a question, a halt at the gate, a resume on approval
+agent-proof:  ## end to end: a question, a halt at the gate, a resume on approval
 	@scripts/agent-proof.sh
 
 .PHONY: shell
@@ -270,7 +271,7 @@ shell:  ## shell inside the api container
 ##@ Tools + MCP  (M4)
 
 .PHONY: tools
-tools:  ## the six §5 tools and the active AOI
+tools:  ## the six tools and the active AOI
 	$(COMPOSE) exec api nightglass-tools list
 
 .PHONY: tool-call
@@ -286,13 +287,13 @@ mcp-tools:  ## list the MCP tools over the stdio transport Claude Desktop uses
 	@scripts/mcp-stdio.sh tools/list
 
 .PHONY: tool-proof
-tool-proof:  ## §M4 end to end: MCP over stdio, the local model chaining, the INTREP guard
+tool-proof:  ## end to end: MCP over stdio, the local model chaining, the INTREP guard
 	@scripts/tool-proof.sh
 
 ##@ The demo  (M6)
 
 .PHONY: demo
-demo:  ## §6 end to end in ~60 s: both AOIs, the gate, and the refusals
+demo:  ## end to end in ~60 s: both AOIs, the gate, and the refusals
 	@scripts/demo.sh
 
 .PHONY: record-demo

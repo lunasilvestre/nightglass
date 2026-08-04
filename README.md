@@ -26,7 +26,7 @@ real AIS in space *and* time. Six typed tools are served over both HTTP and MCP;
 agent chains them, halts at a human gate, and resumes in a different container. Every byte of
 input is fetched against a checksummed manifest, so a clone reproduces the demo rather than
 reading about it — and the whole system crosses an air gap in one tarball that a static Go
-binary refuses six ways before it will restore, then stands the same boundary up again in
+binary refuses eight ways before it will restore, then stands the same boundary up again in
 Kubernetes as a default-deny egress policy, proved against a negative control. Over the Danish validation AOI, 21 of 35
 detections match a vessel that was actually there at a median 104 m, and every AIS vessel over
 200 m inside the scene footprint is recovered. The local 14B model chains three tools unaided
@@ -228,9 +228,9 @@ Everything above assumes the enclave was *built* somewhere with a network. A rea
 route to ASF, to the Danish Maritime Authority, to a container registry or to PyPI — and one of
 those four is on a clock: the DMA serves daily AIS on a rolling ~18-month window, and when
 `aisdk-2026-07-17` ages out, no amount of code fixes it. A bundle is what outlives that —
-**18 GB behind a 3.4 MB static Go binary that refuses six ways before it will restore.**
+**18 GB behind a 3.4 MB static Go binary that refuses eight ways before it will restore.**
 
-**The manifest-first tar, the six refusals, and what actually weighs → [docs/bundle.md](docs/bundle.md)**
+**The manifest-first tar, the eight refusals, and what actually weighs → [docs/bundle.md](docs/bundle.md)**
 
 ---
 
@@ -451,14 +451,14 @@ docker-compose.yml        the enclave — one internal network, no egress
 .mcp.json                 the MCP attach, committed — clone and Claude Code has the tools
 docker/                   application image (runtime · fetcher · dev), postgis init
   Dockerfile.bundler      golang:1.26-alpine -> scratch; the host never needs Go
-scripts/                  preflight, the six proofs, the demo, its pacing and its check
+scripts/                  preflight, the seven proofs, the demo, its pacing and its check
 deploy/
   helm/nightglass/        the enclave as a chart; templates/networkpolicy.yaml is the point
   values-proof.yaml       what `make k8s-proof` overrides, and therefore does not exercise
 bundler/                  Go. the offline transfer bundle — a second language, on purpose
   cmd/bundle/main.go      nightglass-bundle create|verify|restore|inspect
   internal/manifest/      the manifest, and every way it can be internally incoherent
-  internal/bundle/        create · verify · restore — one streaming pass, six refusals
+  internal/bundle/        create · verify · restore — one streaming pass, eight refusals
   internal/sources/       reads data/sources.yaml, so a bundle cannot outrun the manifest
   internal/dockercli/     docker save · load · the volume round trip, over os/exec
 corpus/

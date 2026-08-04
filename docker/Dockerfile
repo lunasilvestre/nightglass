@@ -11,7 +11,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# curl is NOT incidental. EXECUTION_SPEC §M1's proof is, verbatim:
+# curl is NOT incidental. The air-gap proof is, verbatim:
 #     docker compose exec api curl -m 5 https://example.com
 # so curl has to exist inside the image for the milestone to be demonstrable at
 # all. The container healthchecks use it too.

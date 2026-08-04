@@ -1,6 +1,9 @@
 # The offline transfer bundle — design
 
-**Status:** approved 2026-08-04. Implements EXECUTION_SPEC §M7 item 1.
+**Status:** approved 2026-08-04, built the same day. This is the design as written *before*
+implementation, kept as the record of what was intended; where the built thing diverged, the
+divergence is noted in place rather than edited away. [`docs/bundle.md`](../bundle.md) describes
+what actually exists.
 
 A clone of this repository can reproduce the demo by fetching 6.2 GB from four hosts. A site with
 no route to any of them cannot. This is the artifact that crosses that gap: one tarball, a SHA256
@@ -24,7 +27,7 @@ Measured on this machine, 2026-08-04, Docker 29.7.1 with the containerd image st
 | `data/` | 3 granules (`role: required`) + `aisdk-2026-07-17.zip` | 3.65 GB |
 | | | **~18.0 GB** |
 
-**These are `docker save` sizes, not `docker images` sizes.** `docs/HANDOVER_M7.md` budgets ~21 GB
+**These are `docker save` sizes, not `docker images` sizes.** The earlier M7 estimate budgeted ~21 GB
 for the images alone, from the `docker images` SIZE column — which reports the *unpacked* size of
 the snapshot on disk. `docker save` writes the compressed layer blobs. The two differ by 2.9×:
 
@@ -208,6 +211,13 @@ implementation passes without it.
 
 Checks 3 and 4 together are set equality between the manifest and the stream. Neither direction is
 optional and only one of them is obvious.
+
+*Built as eight, not six.* Implementation added two the design missed: a member that is not a
+regular file (`CodeMemberType` — a symlink or device node in a bundle is a bug in the writer or an
+attempt at something), and a tar header whose declared size disagrees with the manifest
+(`CodeSize` — cheap, and a clearer diagnosis than the hash mismatch it would otherwise become).
+The count went unrevised in this document and in the README for a day, which is its own small
+lesson about writing a number down in six places.
 
 Exit codes: `0` verified, `1` refused with a named reason, `2` the bundle could not be read at all.
 

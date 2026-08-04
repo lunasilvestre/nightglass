@@ -45,7 +45,7 @@ the manifest is a join over two existing content-addressed stores rather than a 
 for model blobs the filename *is* the checksum — manifest, filename and content all have to
 agree, which catches a corrupt blob one way and a doctored manifest the other.
 
-### Six ways it refuses
+### Eight ways it refuses
 
 The failure that matters is not corruption. It is a bundle that streams cleanly to EOF and is
 quietly **missing** something — because every check that asks "is what is here correct?" passes
@@ -59,7 +59,14 @@ the one tool whose entire job is to say *this is complete*.
 | 3 | **a manifest entry that never appeared** — set equality, the direction a naive verifier omits |
 | 4 | a member present that the manifest does not list |
 | 5 | `MANIFEST.json` not first — refused rather than falling back to staging 18 GB |
-| 6 | a path twice, or a member that is not a regular file |
+| 6 | a path that appears twice — ambiguous, and at restore the later member would silently win |
+| 7 | a member that is not a regular file — a symlink or device node in a bundle is a bug in the writer or an attempt at something |
+| 8 | a tar header whose size disagrees with the manifest — caught before a byte is hashed, because that is a clearer diagnosis than the mismatch it would otherwise become |
+
+The codes are `CodeMismatch`, `CodeTruncated`, `CodeMissing`, `CodeUnexpected`,
+`CodeManifestNotFirst`, `CodeDuplicate`, `CodeMemberType` and `CodeSize`, all in
+[`internal/bundle/refusal.go`](../bundler/internal/bundle/refusal.go) and all covered by
+`verify_test.go`.
 
 `make bundle-proof` demonstrates four of them, three by damaging a real bundle — one flipped
 byte, a truncated copy, and a rewritten archive with one blob removed and the manifest left
@@ -71,7 +78,7 @@ could not be run.
 
 `restore` is the same single pass with the bytes written down instead of discarded. Every member
 lands as `<path>.part` while it is hashed, and nothing is renamed and nothing is `docker load`ed
-until the entire archive has passed all six checks — the discipline
+until the entire archive has passed all eight checks — the discipline
 [`spatial/archive.py`](../src/nightglass/spatial/archive.py) already uses for an interrupted
 download. A half-restored bundle is worse than an unrestored one: the images would load, the
 system would start, and whatever was missing would be found by the first thing that needed it.

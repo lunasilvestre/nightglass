@@ -10,7 +10,7 @@
 # AOI and then does the part a SQL result cannot do: it renders the pixels, so
 # the detections can be looked at rather than counted.
 #
-# Denmark, not Portugal, and that is the point of having two AOIs (§3.1). Denmark
+# Denmark, not Portugal, and that is the point of having two AOIs. Denmark
 # is the only one with free point-level historical AIS, so it is the only place a
 # claim about the matcher can be checked instead of asserted.
 
@@ -58,7 +58,7 @@ run detect "$SCENE"
 rule "4. AIS for the acquisition window"
 run load-ais "$AIS" --granule "$SCENE"
 
-rule "5. §M3 — one SQL query, detections with no AIS correspondence"
+rule "5. One SQL query, detections with no AIS correspondence"
 run dark "$SCENE_ID" --limit 15
 
 rule "6. The correction that makes the match work, measured not asserted"

@@ -1,6 +1,6 @@
 # The NIGHTGLASS document corpus
 
-EXECUTION_SPEC §3.3. Two halves, held differently on purpose.
+Two halves, held differently on purpose.
 
 | | Real half | Synthetic half |
 |---|---|---|
@@ -65,9 +65,9 @@ Attribution owed, and reproduced in the top-level README:
 ## The synthetic memos
 
 Twenty-one memos in `corpus/synthetic/`, marked `UNCLASSIFIED // SYNTHETIC` **in
-the front-matter and in the first line of the body**, per §3.3. The ingest
+the front-matter and in the first line of the body**. The ingest
 pipeline reads the marking from the front-matter and propagates it into every
-chunk and from there into any report that cites one — §7's classification
+chunk and from there into any report that cites one — the classification
 propagation, done structurally rather than by asking a model to remember.
 
 Ground rules they were written under:

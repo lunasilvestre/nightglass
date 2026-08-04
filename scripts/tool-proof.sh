@@ -7,7 +7,7 @@
 # Both halves, because the pair is the point: the same six functions serve a
 # frontier model over a pipe from outside the enclave and a 14B model running
 # inside it, and a tool surface that only works with one of those is not an
-# air-gapped capability. §M4 calls that "a good part of the story. Worth
+# air-gapped capability. The milestone called that "a good part of the story. Worth
 # demonstrating both."
 #
 # The MCP half is proven by speaking the protocol, not by asserting it. Claude
@@ -30,7 +30,7 @@ END=${END:-2026-07-18T00:00:00Z}
 # the water, and what an unmatched detection means. The first is spatial, the
 # second is documentary. Asked only the first, the model reasonably reaches for
 # `correlate` — which does all three spatial steps in one call and is the right
-# choice, but demonstrates no chaining. §M4's bar is about chaining, so the
+# choice, but demonstrates no chaining. The bar is about chaining, so the
 # question has to be one a real analyst would ask in full.
 QUESTION=${QUESTION:-"First, which Sentinel-1 scenes cover the area of interest on 17 July 2026? Then, for the scene acquired at 05:23, how many vessels did the detector find, and which of those have no AIS correspondence?"}
 

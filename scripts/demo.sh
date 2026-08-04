@@ -5,9 +5,9 @@
 # anything was cut for time; the variable part is the ~35 s the 14B model spends
 # choosing its tools in step 2, which is live and differs run to run.
 #
-# §6 says record over the Lisbon AOI. The Lisbon AOI has no AIS, and that is not
+# The demo records over the Lisbon AOI. The Lisbon AOI has no AIS, and that is not
 # an oversight: Denmark is the only European state publishing free point-level
-# *historical* AIS, which is exactly why §3.1 made Denmark the validation AOI.
+# *historical* AIS, which is exactly why Denmark is the validation AOI.
 # So a recording of Lisbon alone would be a recording of a refusal — honest, and
 # not a demo — or worse, one that let a viewer read 71 detections as 71 dark
 # vessels.
@@ -16,7 +16,7 @@
 # the question, produces detections and WITHHOLDS the verdict; the claim about
 # the matcher is then made where there is ground truth to make it against; and
 # the detector is cross-checked over Lisbon against somebody else's. Two AOIs on
-# screen is also §3.1's argument made visible instead of asserted — the AOI is
+# screen is also the config-driven argument made visible instead of asserted — the AOI is
 # configuration, and nothing in the code knows which one it is serving.
 #
 # Everything here is live. There is no pre-recorded output, no seeded answer,
@@ -70,7 +70,7 @@ printf '\n%sNIGHTGLASS%s  %sSAR dark-vessel detection that runs with no route to
 # ---------------------------------------------------------------------------
 rule "1. One deployment, one AOI. Which one is configuration."
 # The one-line-per-tool form. The second line of each entry is prose, and the
-# contract — the §5 signatures — is what is worth the screen space here.
+# contract — the tool signatures — is what is worth the screen space here.
 api lisbon nightglass-tools list | sed '/^ \{10,\}/d'
 
 # ---------------------------------------------------------------------------

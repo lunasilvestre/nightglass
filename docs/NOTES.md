@@ -1,6 +1,6 @@
 # NIGHTGLASS — Notes
 
-Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
+Decision log, things tried that failed, open questions.
 
 ---
 
