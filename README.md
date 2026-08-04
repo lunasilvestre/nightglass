@@ -134,6 +134,7 @@ make tool-proof           # the tools over MCP, and the local model chaining the
 make agent-proof          # halts at the human gate, resumes in a different container
 make demo                 # the recording above, live, ~60 s
 make bundle-proof         # the transfer bundle — four refusals, and a restore
+make k8s-proof            # the same air gap as a NetworkPolicy, against a control
 ```
 
 `make` with no target lists everything.
