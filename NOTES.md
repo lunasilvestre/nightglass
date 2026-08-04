@@ -68,6 +68,12 @@ Three guards fired in one run, the model recovered, and the final numbers are th
 ones. A system that accepts a plausible-looking invented id is a system whose provenance chain
 means nothing; this is what it looks like when it does not.
 
+**It reproduces exactly.** Four consecutive `make tool-proof` runs produced byte-identical
+transcripts — same invented ids, same refusals, same recovery, same 35/21/14 — which is what
+temperature 0 over a fixed database should give and is worth knowing before anyone treats a
+differing run as noise. The script now says up front that the ERROR and REPEAT lines are
+expected, because a reader meeting two red lines in a proof reasonably assumes something broke.
+
 ### Deliberate divergence from EXECUTION_SPEC
 
 §M5's original done-when named a specific language, §6's demo query was written in it, and §2's

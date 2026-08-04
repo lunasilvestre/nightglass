@@ -65,6 +65,13 @@ EOF
 rule "3. The same functions, driven by the 14B model inside the enclave"
 echo "${DIM}Different consumer, same tools. No stubs: every result below came from${RESET}"
 echo "${DIM}PostGIS and the SAR pixels.${RESET}"
+echo
+echo "${YELL}The ERROR and REPEAT lines below are expected, and are the point.${RESET}"
+echo "${DIM}The model opens by inventing a scene id and ten detection ids. Both are${RESET}"
+echo "${DIM}refused by name, the repeat detector catches the identical retry that${RESET}"
+echo "${DIM}follows, and it then reaches the hand-checked numbers using real ids. A${RESET}"
+echo "${DIM}tool surface that accepts a plausible invented id has a provenance chain${RESET}"
+echo "${DIM}that means nothing.${RESET}"
 docker compose exec -T -e NIGHTGLASS_AOI="$AOI" api nightglass-tools chain "$QUESTION"
 
 rule "4. What the report may and may not say"
