@@ -16,14 +16,16 @@ would mark most of a harbour dark.
 
 *Precision side.* Nothing guarded it. A rate is a fraction, and the source side
 only validates the denominator's other half — it says nothing about whether the
-*numerator* is vessels. Over the Kattegat, with ground-truth AIS, 45 of 60
-detections match at a median 119 m and recall is 88% for AIS vessels ≥ 30 m: the
-matcher is validated. But 25% of detections are unmatched against a published
-base rate of ~5%, and a shoreline-buffer sweep showed near-shore detections are
-unmatched at 6:1 — so the excess is coastal clutter, not dark vessels. The
-matcher being right does not make the detector's coastal precision right, and a
-rate computed from a numerator of unknown composition is a number about the
-detector's false alarms wearing the clothes of a number about ships.
+*numerator* is vessels. Over the Kattegat, with ground-truth AIS, 21 of 35
+detections match at a median 104 m and every AIS vessel over 200 m inside the
+footprint is recovered: the matcher is validated. But **40%** of detections are
+unmatched against a published base rate of ~5%, and that number went *up* when
+duplicate detections of the same hull were merged away — because it was the
+matched detections that were duplicated, not the unmatched ones. The excess is
+coastal clutter and isolated false alarms. The matcher being right does not make
+the detector's precision right, and a rate computed from a numerator of unknown
+composition is a number about the detector's false alarms wearing the clothes of
+a number about ships.
 
 So `DETECTOR_PRECISION_VALIDATED` is False, everywhere, today. The consequence
 is deliberately absolute: this system reports *"here are N detections I matched,
@@ -60,20 +62,24 @@ from nightglass.tools.base import DMA_ATTRIBUTION
 DETECTOR_PRECISION_VALIDATED = False
 
 PRECISION_CAVEAT = (
-    "The detector's coastal precision is not validated. Over the Danish "
-    "validation AOI 25% of detections had no AIS correspondence against a "
-    "published base rate of ~5%, and a shoreline-buffer sweep showed the excess "
-    "is coastal clutter — harbour structures and fixed installations — not dark "
-    "vessels. Counts of matched pairs are defensible; a dark-vessel rate is not."
+    "The detector's precision is not validated. Over the Danish validation AOI "
+    "40% of detections have no AIS correspondence against a published base rate "
+    "of ~5%. The excess is coastal clutter and isolated false alarms, not dark "
+    "vessels: a shoreline-buffer sweep concentrates it near shore, and after "
+    "duplicate detections of the same hull are merged the unmatched fraction "
+    "rises rather than falls, because it is the matched detections that were "
+    "duplicated. Counts of matched pairs are defensible; a dark-vessel rate is not."
 )
 
 PRECISION_CAVEAT_PT = (
-    "A precisão costeira do detetor não está validada. Na AOI de validação "
-    "dinamarquesa, 25% das deteções não tiveram correspondência AIS contra uma "
-    "taxa de base publicada de ~5%, e uma varredura de buffer de linha de costa "
-    "mostrou que o excesso é ruído costeiro — estruturas portuárias e "
-    "instalações fixas — e não embarcações escuras. Contagens de pares "
-    "correspondidos são defensáveis; uma taxa de embarcações escuras não é."
+    "A precisão do detetor não está validada. Na AOI de validação dinamarquesa, "
+    "40% das deteções não têm correspondência AIS contra uma taxa de base "
+    "publicada de ~5%. O excesso é ruído costeiro e falsos alarmes isolados, não "
+    "embarcações escuras: uma varredura de buffer de linha de costa concentra-o "
+    "junto à costa, e depois de fundidas as deteções duplicadas do mesmo casco a "
+    "fração sem correspondência sobe em vez de descer, porque eram as deteções "
+    "correspondidas que estavam duplicadas. Contagens de pares correspondidos "
+    "são defensáveis; uma taxa de embarcações escuras não é."
 )
 
 DARK_IS_A_LEAD = (

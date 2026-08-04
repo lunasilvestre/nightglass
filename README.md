@@ -23,8 +23,9 @@ offline (M1), answers from a 60-document corpus with every claim traced to a ret
 or refuses (M2), runs its own vessel detector over real Sentinel-1 pixels and correlates the
 detections against real AIS in space *and* time (M3), and serves all six `EXECUTION_SPEC.md` §5
 tools over both HTTP and MCP (M4), and runs a LangGraph agent that halts at a human gate and
-resumes in a different container (M5). Over the Danish validation AOI, 45 of 60 detections match
-a vessel that was actually there, with **88% recall on AIS vessels ≥ 30 m**. The local 14B model
+resumes in a different container (M5). Over the Danish validation AOI, 21 of 35 detections match
+a vessel that was actually there at a median 104 m, and every AIS vessel over 200 m inside the
+scene footprint is recovered. The local 14B model
 chains three tools unaided from a Portuguese question; Claude Code drives the same tools over a
 pipe from outside the enclave. What remains is packaging and the recording (M6). `NOTES.md` is
 the running decision log.
@@ -315,9 +316,9 @@ is the only one with free point-level historical AIS, so it is the only place a 
 matcher can be *checked* rather than asserted.
 
 ```
-detections    60          in the Kattegat AOI, from one Sentinel-1 GRD granule
-matched       45          an AIS vessel within 500 m of where SAR would have drawn it
-dark          15          no AIS correspondence — 25.0%
+detections    35          in the Kattegat AOI, from one Sentinel-1 GRD granule
+matched       21          an AIS vessel within 500 m of where SAR would have drawn it
+dark          14          no AIS correspondence — 40.0%
 ```
 
 ### The detector is ours
@@ -396,16 +397,20 @@ So the second mask is a real shoreline: **GSHHG at full resolution**, fetched at
 time and clipped to the AOI — 149 MB downloaded, 713 KB kept. The trade-off is measured, not
 guessed:
 
-| shoreline buffer | detections | matched | dark | dark rate |
+| shoreline buffer | detections | matched | dark | unmatched |
 |---|---|---|---|---|
-| 300 m | 71 | 46 | 25 | 35% |
-| **1000 m** *(default)* | **60** | **45** | **15** | **25%** |
-| 2000 m | 53 | 44 | 9 | 17% |
-| 3000 m | 50 | 43 | 7 | 14% |
+| 300 m | 45 | 22 | 23 | 51% |
+| **1000 m** *(default)* | **35** | **21** | **14** | **40%** |
+| 2000 m | 29 | 21 | 8 | 28% |
+| 3000 m | 26 | 20 | 6 | 23% |
 
-Going from 300 m to 3 km removes 21 detections — **18 of them dark and only 3 matched**. Coastal
-detections are overwhelmingly not vessels, and the buffer costs almost no real ones. 1 km is
-where that stops being nearly free.
+Going from 300 m to 3 km removes 19 detections — **17 of them unmatched and only 2 matched**.
+Coastal detections are overwhelmingly not vessels, and the buffer costs almost no real ones.
+1 km is where that stops being nearly free.
+
+Read the last column carefully: it is the fraction of *detections* with no AIS correspondence,
+and it does not fall below 23% even three kilometres offshore. That is a statement about this
+detector's false-alarm rate, not about how many ships were running dark.
 
 ### Looking at it
 
@@ -451,29 +456,28 @@ This is detection-for-detection over the same pixels, not "they saw N in this bo
 `make gfw-compare`:
 
 ```
-ours          133 detections   (nightglass-cfar)
+ours           71 detections   (nightglass-cfar)
 GFW            66 detections   (published layer, same granule)
 
-both saw       49   (74% of GFW's, median separation 56 m)
+both saw       49   (74% of GFW's, median separation 78 m)
 GFW only       17   they found, we did not
-ours only      84   we found, they did not
+ours only      22   we found, they did not
 ```
 
-**56 m median separation between two independent detectors** — tighter than the 119 m against
+**78 m median separation between two independent detectors** — tighter than the 104 m against
 DMA AIS, as it should be, since both are measuring pixels rather than pixels against a
 transponder.
 
-The 84 is the number worth interrogating, and the flattering reading — "ours is more sensitive"
-— is wrong. Measuring how far each of those 84 sits from the nearest detection *both* found:
+This comparison is what first caught the detector counting one vessel several times. Before the
+merge step it reported 133 detections here, and 61% of the 84 GFW did not share sat within 200 m
+of one we had both found — fragments of the same hull, not extra vessels. With merging on,
+agreement is unchanged at 49 and the residue drops to 22, of which **none** is within 200 m of
+an agreed detection: median distance to the nearest, 26 km. What is left is genuinely isolated —
+extra sensitivity or extra false alarms, not double counting.
 
-```
-within 200 m   51   (61%)   — too close to be a second vessel
-median        152 m
-```
-
-So this granule holds nearer **82 distinct targets than 133**. The detector has no merge step,
-and Portuguese scenes show heavy azimuth smear that splits one hull into several blobs. That was
-visible in the chips before it was measured; the cross-check is what turned it into a number.
+Denmark settled the question properly afterwards, and cheaper: 45 matched detections there
+resolved to **18 distinct MMSIs**, and clustering at 100–300 m produced zero groups containing
+more than one vessel. See NOTES finding 46 — the ground truth was on the bench the whole time.
 
 Two detectors agreeing is weaker evidence than the AIS validation banked over Denmark — it says
 the detector generalises, not that either is right, and the tool prints that sentence every time
@@ -545,15 +549,15 @@ The prompt layer and the schema layer both let it through. The check caught it.
 
 ### What the numbers do *not* say
 
-- **25% unmatched is not a 25% dark-vessel rate.** Published work on Danish waters finds ~5%
+- **40% unmatched is not a 40% dark-vessel rate.** Published work on Danish waters finds ~5%
   unmatched and ~0.4% genuinely dark after review. The residual here concentrates near shore and
-  is dominated by coastal clutter this pipeline has not fully separated from vessels.
-- **A detection count is not a vessel count.** Measured against GFW over Portugal, 61% of the
-  detections they did not share sit within 200 m of one we both found — fragments of the same
-  hull, not extra vessels. The two AOIs fail differently: over Denmark the excess is coastal
-  clutter, over Portugal it is fragmentation, and testing the clutter hypothesis over Portugal
-  put only ~24% of the excess within 5 km of shore against 6% of the agreed detections. Neither
-  failure mode would have been visible from the other AOI alone.
+  is dominated by clutter and isolated false alarms this pipeline has not separated from vessels.
+- **That 40% used to read 25%, and the correction made it worse.** 45 matched detections over
+  the Kattegat resolved to **18 distinct MMSIs** — one ship accounting for six of them — so the
+  old denominator was padded with duplicates of vessels that *did* match. Merging them (§
+  `DetectorConfig.merge_radius_m`, validated by AIS: zero clusters mix MMSIs at 100–300 m)
+  collapses matched detections 45 → 21 while unmatched barely moves, 15 → 14. Which is itself
+  informative: the unmatched residue is *isolated*, not fragments of real ships.
 - **No AIS is loaded for Portugal, and the tools refuse rather than guess.** `ais_match` raises
   instead of returning 133 unmatched detections, and `correlate` returns the detections with the
   verdict withheld. "We searched a feed and found nothing" and "there was no feed to search" are
@@ -561,8 +565,9 @@ The prompt layer and the schema layer both let it through. The check caught it.
 - **Detected length is not a reliable size estimate.** Detecting at 8σ and measuring at the same
   threshold gave lengths with **r = 0.015** against AIS — no relationship at all, because at
   that threshold the blob tracks peak brightness rather than hull. Re-growing each detection at
-  2.5σ fixed the *bias* (median ratio 0.30× → **1.15×**) but the per-vessel scatter stays wide
-  (**r = 0.198**). The median is usable; an individual number is not.
+  2.5σ fixed the *bias* (median ratio 0.30× → **1.05×**) but the per-vessel scatter stays wide
+  (**r = 0.271**). The median is usable; an individual number is not — which is why the INTREP's
+  per-detection extents should be read as "something of roughly this size was here".
 - **`rate_is_quotable` is a field the code checks**, not a sentence someone has to remember. It
   is true here only because every match came from DMA. It is also only *half* the check — see
   below.
@@ -653,9 +658,9 @@ other end of it is not an air-gapped capability.
 denominator. Over Denmark it is: DMA is ground truth, and the field is **true**.
 
 The report still refuses to state a dark-vessel rate, because that field only guards one side of
-the fraction. It says nothing about whether the things in the *numerator* are vessels — and 25%
-unmatched against a ~5% published base rate says they are substantially coastal clutter. A
-matcher being validated does not make a detector's coastal precision validated.
+the fraction. It says nothing about whether the things in the *numerator* are vessels — and 40%
+unmatched against a ~5% published base rate says they are substantially clutter and false alarms.
+A matcher being validated does not make a detector's precision validated.
 
 So there are two independent conditions, checked separately, and `DETECTOR_PRECISION_VALIDATED`
 in `tools/intrep.py` is a constant sitting at `False` with a test as its tripwire — flipping it
@@ -765,14 +770,16 @@ Stated before being asked, because each one was tested rather than assumed.
   against. Denmark is the only AOI where this is observable, which is much of what the Danish
   AOI is for.
 - Single scene per AOI. No CFAR tuning. No accuracy claims beyond what was measured.
-- **25% of detections unmatched is not a 25% dark-vessel rate.** Published work on Danish waters
-  finds ~5% unmatched and ~0.4% genuinely dark after review. The excess here concentrates near
-  shore and is coastal clutter this pipeline has not fully separated from vessels — the
-  shoreline-buffer sweep above shows near-shore detections are unmatched at 6:1. The honest
-  reading is that the *matcher* is validated (45 matches, median 119 m, 88% recall above 30 m)
-  and the *detector's* coastal precision is not yet good enough to quote a rate from.
+- **40% of detections unmatched is not a 40% dark-vessel rate.** Published work on Danish waters
+  finds ~5% unmatched and ~0.4% genuinely dark after review. The excess concentrates near shore —
+  the shoreline-buffer sweep above removes 17 unmatched detections against 2 matched between
+  300 m and 3 km — and it does not fall below 23% even three kilometres offshore. The honest
+  reading is that the *matcher* is validated (21 matches, median 104 m, every AIS vessel over
+  200 m in the footprint recovered) and the *detector's* precision is not good enough to quote a
+  rate from. This figure was 25% until duplicate detections of the same hull were merged; the
+  correction moved it the wrong way, which is why it is stated rather than smoothed.
 - **Detected length is a size band, not a measurement.** Median ratio against AIS-reported length
-  is 1.15×, but per-vessel correlation is only **r = 0.198**. It is used as a filter and
+  is 1.05×, but per-vessel correlation is only **r = 0.271**. It is used as a filter and
   reported as an attribute; it is not evidence about a specific vessel.
 - **Heading is reported only when the blob is genuinely elongated**, and is ambiguous by 180°
   even then — a SAR blob has no bow. The first version returned a heading for every detection
@@ -810,7 +817,7 @@ exists for this mission.
 - **Fix coastal precision properly.** The shoreline buffer is a blunt instrument that trades
   real vessels for clutter. A hydrographic layer with harbour limits, aids to navigation and
   fixed-structure catalogues (wind farms, platforms) would let near-shore detections be
-  classified rather than excluded — and that is where the 25% unmatched figure actually lives.
+  classified rather than excluded — and that is where the 40% unmatched figure actually lives.
 - **Per-detection azimuth time.** A granule spans 25 s and the AIS is currently interpolated to
   the scene mid-time. A detection's own along-track position says when it was really imaged,
   worth ~130 m at 10 kn — inside the current radius, but it is free accuracy.

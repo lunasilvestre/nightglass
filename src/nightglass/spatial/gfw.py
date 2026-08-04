@@ -332,13 +332,24 @@ class Comparison:
                     f"({frag / self.ours_only:.0%})   — too close to be a second vessel"
                 ),
                 f"  median      {_median(self.ours_only_to_agreed_m):.0f} m",
-                "",
-                (
-                    f"So this granule holds nearer {self.distinct_targets} distinct "
-                    f"targets than {self.ours}. The detector has no merge step, and"
-                ),
-                "azimuth smear splits one hull into several blobs.",
             ]
+            lines += (
+                [
+                    "",
+                    (
+                        f"So this granule holds nearer {self.distinct_targets} distinct "
+                        f"targets than {self.ours} — one vessel is being counted"
+                    ),
+                    "several times. Raise DetectorConfig.merge_radius_m.",
+                ]
+                if frag
+                else [
+                    "",
+                    "None of them is a fragment of something we already counted: the",
+                    "residue is genuinely isolated, so it is extra sensitivity or extra",
+                    "false alarms, not double-counting.",
+                ]
+            )
         if self.agreed:
             lines += [
                 "",

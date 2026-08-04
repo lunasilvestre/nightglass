@@ -145,6 +145,65 @@ docs-stats:  ## what is actually in the document index
 docs-search:  ## doc_search from the CLI. make docs-search Q="embarcação escura"
 	$(COMPOSE) exec api nightglass-corpus search "$(Q)" -k $(or $(K),8)
 
+.PHONY: ask-docs
+ask-docs:  ## grounded, cited answer. make ask-docs Q="o que é uma embarcação escura?"
+	$(COMPOSE) exec api nightglass-corpus ask "$(Q)" --sources
+
+.PHONY: rag-proof
+rag-proof:  ## §M2: same question ungrounded vs grounded, plus the refusal path
+	@scripts/rag-proof.sh
+
+##@ Spatial  (M3)
+
+# The Danish scene and its AIS day. Denmark is the validation AOI (§3.1): it is
+# the only one with free point-level historical AIS, so it is the only place a
+# claim about the matcher can be checked rather than asserted.
+DK_SCENE ?= /app/data/raw/sar/S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13.zip
+DK_AIS   ?= /app/data/interim/ais_kattegat_20260717_0513-0534.csv
+AOI      ?= kattegat
+SPATIAL   = $(COMPOSE) exec -T -e NIGHTGLASS_AOI=$(AOI) api nightglass-spatial
+
+.PHONY: migrate
+migrate:  ## create/refresh the M3 PostGIS schema (add DROP=1 to start clean)
+	$(SPATIAL) migrate $(if $(DROP),--drop,)
+
+.PHONY: scenes
+scenes:  ## catalogue every granule on disk as a STAC item
+	$(SPATIAL) scenes
+
+.PHONY: detect
+detect:  ## run the vessel detector over one granule and load the detections
+	$(SPATIAL) detect $(or $(SCENE),$(DK_SCENE))
+
+.PHONY: load-ais
+load-ais:  ## load AIS for the acquisition window into PostGIS
+	$(SPATIAL) load-ais $(or $(AIS),$(DK_AIS)) --granule $(or $(SCENE),$(DK_SCENE))
+
+.PHONY: dark
+dark:  ## §M3's query — detections with no AIS correspondence
+	$(SPATIAL) dark $(or $(SCENE_ID),$(notdir $(basename $(or $(SCENE),$(DK_SCENE)))))
+
+.PHONY: validate-shift
+validate-shift:  ## measure the azimuth-displacement correction against DMA truth
+	$(SPATIAL) validate-shift $(or $(SCENE),$(DK_SCENE)) $(or $(AIS),$(DK_AIS))
+
+.PHONY: render
+render:  ## chips, scene overview and map view into data/out/
+	$(SPATIAL) render $(or $(SCENE),$(DK_SCENE))
+
+.PHONY: dark-proof
+dark-proof:  ## §M3 end to end: schema, scene, detections, AIS, the query, the evidence
+	@scripts/dark-proof.sh
+
+.PHONY: gfw-compare
+gfw-compare:  ## our detector vs GFW's published layer, over the identical granule
+	@# GFW_AOI, not AOI — see fetch-gfw. AOI defaults to kattegat for the M3
+	@# targets, and GFW is the Portuguese cross-check.
+	$(COMPOSE) exec -T -e NIGHTGLASS_AOI=$(or $(GFW_AOI),lisbon) api nightglass-spatial \
+	  gfw-compare $(if $(SCENE_ID),--scene-id $(SCENE_ID),)
+
+##@ Using it  (M5)
+
 # The agent is a one-shot, not a service (see docker-compose.yml). Each of
 # these starts a fresh container, which is exactly the point of M5: `ask` drafts
 # and exits, and `approve` is a DIFFERENT container picking the halted run up

@@ -74,7 +74,7 @@ from shapely.geometry import shape as to_shape
 from nightglass.config import BBox
 from nightglass.schemas import Detection, Provenance
 from nightglass.spatial.coastline import Coastline
-from nightglass.spatial.geodesy import bearing_deg
+from nightglass.spatial.geodesy import bearing_deg, haversine_m
 from nightglass.spatial.safe import SafeProduct
 
 DETECTOR_NAME = "nightglass-cfar"
@@ -177,6 +177,28 @@ class DetectorConfig:
     min_heading_px: float = 4.0
     min_heading_aspect: float = 1.6
 
+    #: Detections closer together than this are one target, not several.
+    #:
+    #: Azimuth smear draws a moving vessel as a streak, and the region-growing
+    #: sizer picks the streak up as separate blobs — so without this a single
+    #: ship is reported several times, and every count downstream is inflated.
+    #:
+    #: Not a guess. Over the Kattegat, 45 matched detections resolved to **18
+    #: distinct MMSIs**, one vessel accounting for six of them, and single-link
+    #: clustering at 100 m, 200 m and 300 m produced **zero clusters containing
+    #: more than one MMSI** — every group of nearby detections was the same ship,
+    #: confirmed by transponder. 200 m sits in the middle of the range that AIS
+    #: says is safe.
+    #:
+    #: Single-link rather than complete-link on purpose: smear is a *linear*
+    #: streak, so a chain of fragments along the flight direction is exactly the
+    #: shape that should collapse, and the MMSI check says the chaining does not
+    #: over-reach at these radii.
+    #:
+    #: Set to 0 to disable and recover the pre-merge counts. Doing so does not
+    #: make the numbers better, it makes them bigger — see NOTES finding 46.
+    merge_radius_m: float = 200.0
+
     #: Rows read at once. 1024 × 26,564 × 4 bytes is ~109 MB per working array.
     window_lines: int = 1024
 
@@ -228,6 +250,11 @@ class DetectorRun:
     rejected_large: int = 0
     rejected_outside_aoi: int = 0
     rejected_on_coastline: int = 0
+    #: Detections folded into a brighter neighbour because they were the same
+    #: vessel. Reported, not hidden: it is the difference between a count of
+    #: blobs and a count of ships.
+    merged_fragments: int = 0
+    merged_targets: int = 0
     water_sigma0_db: float | None = None
     nesz_db: float | None = None
     px_above_cfar: int = 0
@@ -268,7 +295,14 @@ class DetectorRun:
                 f"   outside AOI: {self.rejected_outside_aoi}"
                 f"   on coastline: {self.rejected_on_coastline}"
             ),
-            f"detections    {self.detections}",
+            (
+                f"merged        {self.merged_fragments} fragment(s) folded into a brighter "
+                f"neighbour within {self.parameters.get('merge_radius_m')} m"
+                if self.merged_fragments
+                else "merged        none — no two detections within "
+                f"{self.parameters.get('merge_radius_m')} m"
+            ),
+            f"detections    {self.detections}   (targets, not blobs)",
             f"elapsed       {self.seconds:.1f} s",
         ]
         return "\n".join(lines)
@@ -688,6 +722,56 @@ def _measure_window(
     return out
 
 
+def _merge_fragments(
+    kept: list[tuple],
+    lons: np.ndarray,
+    lats: np.ndarray,
+    cfg: DetectorConfig,
+    run: DetectorRun,
+) -> tuple[list[tuple], np.ndarray, np.ndarray]:
+    """Collapse detections that are the same vessel seen more than once.
+
+    The representative is the **brightest** member, kept whole rather than
+    averaged. A synthesised centroid would be a position no pixel supports, and
+    with lengths already weakly correlated to truth (r = 0.198) inventing a
+    merged extent would add error rather than remove it. The smear tail is
+    dimmer than the hull, so the highest-margin blob is the best single answer
+    the data contains, and the fragment count travels on the provenance instead
+    of being lost.
+    """
+    n = len(kept)
+    if cfg.merge_radius_m <= 0 or n < 2:
+        return kept, lons, lats
+
+    parent = list(range(n))
+
+    def find(a: int) -> int:
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for i in range(n):
+        near = np.flatnonzero(
+            haversine_m(np.full(lons.shape, lons[i]), np.full(lats.shape, lats[i]), lons, lats)
+            <= cfg.merge_radius_m
+        )
+        for j in near:
+            ra, rb = find(i), int(find(int(j)))
+            if ra != rb:
+                parent[ra] = rb
+
+    clusters: dict[int, list[int]] = {}
+    for i in range(n):
+        clusters.setdefault(find(i), []).append(i)
+
+    keep_idx = [max(members, key=lambda i: kept[i][6]) for members in clusters.values()]
+    keep_idx.sort()
+    run.merged_fragments = n - len(keep_idx)
+    run.merged_targets = len(keep_idx)
+    return [kept[i] for i in keep_idx], lons[keep_idx], lats[keep_idx]
+
+
 def _finalise(
     blobs: list[tuple[float, float, float, float, float, float, float]],
     product: SafeProduct,
@@ -756,6 +840,13 @@ def _finalise(
             return [], []
         cols = [b[0] for b in kept]
         rows = [b[1] for b in kept]
+
+    # One vessel, one detection. Applied here — after the AOI and coastline
+    # filters, before ids are assigned — so an id names a target rather than a
+    # fragment, and `ais_match(["…:det_00007"])` means one ship.
+    kept, lons, lats = _merge_fragments(kept, lons, lats, cfg, run)
+    cols = [b[0] for b in kept]
+    rows = [b[1] for b in kept]
 
     # Heading is the major axis of the blob mapped from pixel space into compass
     # degrees, by transforming a short step along that axis. It is the hull

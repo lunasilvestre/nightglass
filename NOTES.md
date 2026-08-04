@@ -4,6 +4,79 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
+## Post-M5 — the merge step, and the number it made worse
+
+### 46. ⭐⭐⭐ 45 matched detections were 18 ships, and fixing it moved 25% dark to 40%
+
+Finding 38 caught the detector counting one vessel several times over Portugal, using GFW as the
+instrument. The instrument was wrong — not useless, but second best, and I should have reached
+for the one already on the bench. **Denmark has AIS**, so the question "are these detections the
+same ship?" has a ground-truth answer that costs one query:
+
+```
+matched detections 45   distinct MMSIs behind them 18
+one MMSI accounts for 6 of them
+
+merge radius   clusters   multi-member   same MMSI   DIFFERENT MMSIs
+      100 m         42            14           14            0
+      200 m         35            14           14            0
+      300 m         31            12           12            0
+```
+
+**Zero clusters mix MMSIs at any radius.** Every group of nearby detections is one ship,
+confirmed by transponder. So merging is not a heuristic here, it is a correction with ground
+truth behind it, and `merge_radius_m = 200.0` sits in the middle of the range AIS says is safe.
+Single-link linkage, because azimuth smear is a *linear* streak and a chain of fragments along
+the flight direction is exactly the shape that should collapse.
+
+**The result is worse than what it replaced, which is the point.**
+
+| Kattegat, scene BC13 | before | after |
+|---|---|---|
+| detections | 60 | **35** |
+| matched | 45 | 21 |
+| unmatched | 15 | 14 |
+| **unmatched fraction** | **25.0%** | **40.0%** |
+| median match distance | 119 m | 104 m |
+| detected-vs-AIS length | 1.15×, r = 0.198 | **1.05×, r = 0.271** |
+
+The old 25% was flattered by a denominator padded with duplicates of vessels that *did* match:
+matched detections collapsed 45 → 21, unmatched barely moved, 15 → 14. Which is itself
+informative — **dark detections are isolated, matched ones are fragmented**, exactly what you
+would expect if the unmatched residue is clutter and single spurious blobs rather than pieces of
+real ships.
+
+40% is the number §3.2 warns about by name: *"if your pipeline reports 40% dark, it's broken."*
+It does not change the conclusion, it sharpens it. The system already refuses to quote a dark
+rate on precision grounds, and the refusal now has a number behind it that makes the reason
+obvious rather than arguable.
+
+**What did not change, checked rather than assumed.** Recall is identical with merging on and
+off — 14 of 18 AIS vessels ≥ 30 m inside the footprint, both ways — because merging only ever
+folds a detection into a *brighter neighbour within 200 m*, and a vessel that was found stays
+found. The azimuth-displacement sign is still −1. Length agreement improved, which makes sense:
+a fragment is a truncated hull.
+
+**And over Portugal the fragments vanish cleanly.** 133 detections → 71, while agreement with
+GFW holds at 49 of their 66. The 84 detections GFW did not share become 22, and where 61% of
+them used to sit within 200 m of something we had already counted, **now 0% do** — median
+distance to the nearest agreed detection 26 km. The residue is genuinely isolated: extra
+sensitivity or extra false alarms, not double counting.
+
+### 47. A Makefile section disappeared into a `str.index` prefix match
+
+`t.index(".PHONY: ask")` matches `.PHONY: ask-docs`, which appears earlier in the file. An edit
+meant to replace one target replaced everything from there to the M5 block — the whole
+`##@ Spatial (M3)` section, `ask-docs` and `rag-proof` — and it shipped, because `make lint` and
+`make test` do not exercise Makefile targets and the target I was testing still worked.
+
+Caught by `make gfw-compare` failing with "No rule to make target" two commits later. Restored
+from `git show 1c0e57a:Makefile` and verified by diffing the full `.PHONY` inventory rather than
+by looking. The lesson is the same one finding 21 records in a different medium: it was
+invisible in everything I was checking.
+
+---
+
 ## M5 — done 2026-08-04. A graph that genuinely stops, and an answer nobody generated.
 
 `make agent-proof` is the milestone: a Portuguese question drafts an INTREP, the graph halts at
