@@ -1,6 +1,12 @@
 # Handover prompt — M6
 
-Paste everything below the line into a fresh session.
+**One sentence, if that is all you want to paste:**
+
+> Read `HANDOVER_M6.md` and the "→ HANDOFF TO M6" section of `NOTES.md`, then build M6 — write
+> `make fetch-granules` so a clone can reproduce the demo, decide what the 90-second recording
+> shows given the Lisbon AOI has no AIS, and record it.
+
+The longer version below is the same thing with the reasoning attached.
 
 ---
 
@@ -58,6 +64,19 @@ was padded with duplicate detections of vessels that *did* match — 45 matched 
 distinct MMSIs. The guard in `tools/intrep.py` refuses a rate on two independent grounds, one of
 which (`DETECTOR_PRECISION_VALIDATED`) is a constant with a test as its tripwire. Do not flip it.
 
+## Recent changes to be aware of
+
+**Everything is English now.** The per-language INTREP templates, the `language` parameter on
+`draft_intrep`, language handling in the agent graph and six synthetic memos were all removed or
+rewritten; `bge-m3` and the corpus language metadata stay, but nothing shipped exercises
+cross-language retrieval any more and the README says so. This diverges from EXECUTION_SPEC §M5,
+§6 and §2, which named a specific language; all three were reworded and NOTES records it as a
+deliberate divergence. Do not reintroduce it without saying so.
+
+**`make ingest` will not pick up a renamed document.** It is idempotent by chunk id, so a rename
+creates new points and leaves the old ones. Use `make ingest RECREATE=1` after touching the
+corpus, or the index will keep answering from documents you think you deleted.
+
 ## What I would not do
 
 Do not tune the detector to agree with GFW — that is fitting to another detector, and the AIS
@@ -78,5 +97,5 @@ passed (finding 47). If you change the Makefile with a script, diff the `.PHONY`
 
 ## Keep NOTES.md current
 
-Numbered findings for surprises, README for evidence. Findings are at 47. The file is the study
+Numbered findings for surprises, README for evidence. Findings are at 49. The file is the study
 aid and it is doing real work — most of what is above came out of it.
