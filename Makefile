@@ -310,3 +310,50 @@ check-demo:  ## can a human follow the video? per-row dwell + a 1 fps slice of i
 	@tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
 	  scripts/pace-demo.py docs/demo.cast $$tmp/p.cast >/dev/null && \
 	  scripts/check-demo.py $$tmp/p.cast docs/demo.mp4
+
+##@ The offline bundle  (M7)
+
+# The bundler is Go, and the host does not need Go: it is built in a container
+# and delivered as a static binary, the same way `make test` runs pytest in a
+# container rather than asking the host for a Python. `scripts/preflight.sh`
+# gains no new line because the contract is still docker and make.
+BUNDLE ?= nightglass-bundle-0.1.0.tar
+NGBUNDLE = bundler/bin/nightglass-bundle
+
+.PHONY: bundler
+bundler:  ## build the static bundler binary into bundler/bin/ (no Go on the host)
+	docker build -q --target bin --output bundler/bin -f docker/Dockerfile.bundler . >/dev/null
+	@file $(NGBUNDLE) | sed 's/^/   /'
+
+.PHONY: bundler-test
+bundler-test:  ## go vet + go test for the bundler, in the build container
+	docker build -q --target test -f docker/Dockerfile.bundler . >/dev/null && echo "   ok"
+
+.PHONY: bundle
+bundle: bundler  ## build the ~18 GB offline transfer bundle. Needs images, models and data.
+	@echo ">> The wheelhouse step needs a package index; everything else is local."
+	@echo ">> Needs the images built (make up), the model volume filled (make"
+	@echo ">> pull-models) and the data fetched (make fetch-granules fetch-ais)."
+	@echo ">> ALL=1 adds sources.yaml's optional and superseded granules."
+	$(NGBUNDLE) create -o $(BUNDLE) --repo . $(if $(ALL),--all,) \
+	  $(if $(SKIP_WHEELS),--skip-wheels,) $(if $(CREATED),--created $(CREATED),)
+
+.PHONY: verify-bundle
+verify-bundle: bundler  ## stream a bundle and check every byte against its manifest
+	$(NGBUNDLE) verify $(BUNDLE) $(if $(V),-v,)
+
+.PHONY: inspect-bundle
+inspect-bundle: bundler  ## read a bundle's manifest without reading the bundle
+	$(NGBUNDLE) inspect $(BUNDLE)
+
+.PHONY: restore-bundle
+restore-bundle: bundler  ## verify a bundle, then load it into docker and this clone
+	@echo ">> Unpacks to INTO (default ./bundle-restore), then docker load, fills the"
+	@echo ">> model volume and places data/raw. Nothing is committed until the whole"
+	@echo ">> archive has verified."
+	$(NGBUNDLE) restore $(BUNDLE) --into $(or $(INTO),./bundle-restore) \
+	  --install --repo .
+
+.PHONY: bundle-proof
+bundle-proof:  ## §M7 end to end: create, verify, four refusals, restore into a clean daemon
+	@scripts/bundle-proof.sh

@@ -467,7 +467,14 @@ At some point he should make a non-trivial change himself. Hands in it beats rea
         fired unprompted on the first real run — the model wrote a proportion
         into the assessment and the check removed it.
 [ ] M6  README, diagram, 90-second recording
-[ ] M7  optional extras
+[~] M7  optional extras — 1 of 4
+        Go bundler done: `bundler/`, a 3.4 MB static binary, one tarball with a
+        SHA256 manifest as its first member and a `verify` that streams. Four
+        refusals in `make bundle-proof`, and a restore into an empty docker:dind
+        with no Python and no Go on it. The size budget in HANDOVER_M7 was wrong
+        by 7 GB — `docker images` measures the unpacked snapshot, `docker save`
+        writes compressed layers (finding 57).
+        Remaining: k3s NetworkPolicy, the eval set, SBOM + digest pinning.
 ```
 
 ---

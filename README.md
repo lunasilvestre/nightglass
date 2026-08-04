@@ -17,13 +17,15 @@ Deliberately shaped as the open-source shadow of ICEYE Ocean Vision Detect.
 > transponder failure, low-power class B sets, vessels never required to carry AIS at all. The
 > system surfaces candidates. The analyst adjudicates.
 
-**Status: M6 — packaged.** The enclave stands up and is sealed (M0), runs inference
+**Status: M6 — packaged, plus the first of §M7's optional items.** The enclave stands up and is sealed (M0), runs inference
 offline (M1), answers from a 60-document corpus with every claim traced to a retrievable chunk
 or refuses (M2), runs its own vessel detector over real Sentinel-1 pixels and correlates the
 detections against real AIS in space *and* time (M3), serves all six [`EXECUTION_SPEC.md`](docs/EXECUTION_SPEC.md) §5
 tools over both HTTP and MCP (M4), runs a LangGraph agent that halts at a human gate and
 resumes in a different container (M5), and fetches every byte it needs from a checksummed
-manifest, so a clone reproduces the demo rather than reading about it (M6). Over the Danish
+manifest, so a clone reproduces the demo rather than reading about it (M6) — and now carries the
+whole of itself across an air gap in one tarball that a static Go binary refuses six ways before
+it will restore (§M7). Over the Danish
 validation AOI, 21 of 35 detections match a vessel that was actually there at a median 104 m,
 and every AIS vessel over 200 m inside the scene footprint is recovered. The local 14B model
 chains three tools unaided from a plain analyst question; Claude Code drives the same tools over a
@@ -178,6 +180,7 @@ make dark-proof           # §M3: detector, AIS, the space-time join, and the re
 make tool-proof           # §M4: the tools over MCP, and the local model chaining them
 make agent-proof          # §M5: halts at the human gate, resumes in a different container
 make demo                 # §6:  the recording above, live, ~60 s
+make bundle-proof         # §M7: the transfer bundle — four refusals, and a restore
 ```
 
 `make` with no target lists everything.
@@ -772,12 +775,133 @@ carrying a note saying so and how to select them, so the bound is visible in the
 
 ---
 
+## Crossing the gap: one tarball, and the ways it refuses
+
+Everything above assumes the enclave was *built* somewhere with a network. A real site has no
+route to ASF, to the Danish Maritime Authority, to a container registry or to PyPI — and one of
+those four is on a clock. The DMA serves daily AIS on a rolling ~18-month window, so on the day
+`aisdk-2026-07-17` ages out, the Danish validation stops being reproducible from
+[`data/sources.yaml`](data/sources.yaml) and no amount of code fixes it. A bundle is what
+outlives that.
+
+```bash
+make bundler          # build the static binary — the host never needs Go
+make bundle           # ~18 GB: images, model blobs, wheels, granules, the AIS day
+make verify-bundle    # stream it, check every byte against its own manifest
+make restore-bundle   # verify, then docker load and place the data
+make bundle-proof     # §M7: the whole round trip on a 100 MB fixture, ~60 s
+```
+
+**It is Go, and not because Go is pleasant.** The thing that unpacks an air-gapped bundle cannot
+itself need a Python environment to exist first. `nightglass-bundle` is 3.4 MB, `CGO_ENABLED=0`,
+statically linked, and `make bundle-proof` runs it inside a `docker:dind` container that has no
+Python and no Go in it — which is the only way to show that claim rather than assert it. The
+host does not need a Go toolchain either: the binary is built in `golang:1.26-alpine` and copied
+out, the same way `make test` runs pytest in a container. `scripts/preflight.sh` gained no line.
+
+### The manifest is the first member
+
+A bundle is a tar whose first entry is `MANIFEST.json`, and every entry after it is hashed as it
+streams past. That ordering is the whole design: it means `verify` is one sequential pass — no
+seeking, no staging, one megabyte of memory across 18 GB — so a bundle can be checked *on a
+pipe*, as it comes off the medium, rather than after it has been copied somewhere first.
+
+```bash
+cat /media/usb/nightglass-bundle-0.1.0.tar | nightglass-bundle verify -
+```
+
+The cost lands on `create`, which cannot write the first member until it has read every other
+one. That is the right side to put it on: create runs once per bundle and verify runs every time
+one moves.
+
+Both halves of what it carries are content-addressed already. `docker save` emits an OCI layout
+whose files are named `blobs/sha256/<hex>`; the Ollama store is `models/blobs/sha256-<hex>`. So
+the manifest is a join over two existing content-addressed stores rather than a new format, and
+for model blobs the filename *is* the checksum — manifest, filename and content all have to
+agree, which catches a corrupt blob one way and a doctored manifest the other.
+
+### Six ways it refuses
+
+The failure that matters is not corruption. It is a bundle that streams cleanly to EOF and is
+quietly **missing** something — because every check that asks "is what is here correct?" passes
+on it. That is [finding 55](docs/NOTES.md)'s shape, truncation that looks like completion, in
+the one tool whose entire job is to say *this is complete*.
+
+| | refuses |
+|---|---|
+| 1 | bytes differ — sha256 mismatch, both digests printed |
+| 2 | a member short at EOF — reported as **truncated**, not as a mismatch, because a partial copy and a corrupted one need different next steps |
+| 3 | **a manifest entry that never appeared** — set equality, the direction a naive verifier omits |
+| 4 | a member present that the manifest does not list |
+| 5 | `MANIFEST.json` not first — refused rather than falling back to staging 18 GB |
+| 6 | a path twice, or a member that is not a regular file |
+
+`make bundle-proof` demonstrates four of them, three by damaging a real bundle — one flipped
+byte, a truncated copy, and a rewritten archive with one blob removed and the manifest left
+untouched — and the fourth on the `create` side: a granule edited **in place**, so it is still
+exactly the size `data/sources.yaml` declares. Right size, wrong bytes is the failure a byte
+count cannot see, and it is what the committed sha256 exists for. Exit codes separate the two
+outcomes that must never be conflated: **1** the check ran and the answer is no, **2** the check
+could not be run.
+
+`restore` is the same single pass with the bytes written down instead of discarded. Every member
+lands as `<path>.part` while it is hashed, and nothing is renamed and nothing is `docker load`ed
+until the entire archive has passed all six checks — the discipline
+[`spatial/archive.py`](src/nightglass/spatial/archive.py) already uses for an interrupted
+download. A half-restored bundle is worse than an unrestored one: the images would load, the
+system would start, and whatever was missing would be found by the first thing that needed it.
+
+### What it weighs, and what does not travel
+
+Measured on the real thing — 144 entries, **18,079,023,616 bytes**, built in 4 m 50 s:
+
+| | entries | bytes |
+|---|---|---|
+| `images/` — 6 × `docker save` | 6 | 4,105,874,944 |
+| `models/` — 8 blobs + 2 manifests | 10 | 10,145,798,095 |
+| `wheels/` — 123 wheels + `requirements.txt` | 124 | 179,589,836 |
+| `data/` — 3 granules (`role: required`) + the DMA day | 4 | 3,647,612,054 |
+
+`verify` reads all of it in **11.6 s**, 7.6 s of which is CPU — sha256 on x86-64 runs at about
+2.4 GB/s with the SHA extensions, so this is I/O-bound rather than hash-bound, which is the
+result the streaming design was for. Treat it as a floor: the archive had just been written and
+some of it was still in page cache.
+
+`docs/HANDOVER_M7.md` budgeted ~21 GB for this and named the ollama image as "the whole cost,
+essentially". Both came from the `docker images` SIZE column, which reports the *unpacked*
+snapshot; `docker save` writes the compressed layers, and the two differ by 2.9× — the five
+stack images are 11.57 GB by that column and **4.02 GB** in an archive. The real cost centre is
+the model blobs at **56%**, and nothing can be done about those because GGUF is already
+quantised. Recorded as [finding 57](docs/NOTES.md) because a number copied out of a tool's
+summary column is a measurement of that column.
+
+Each image entry also records the ref, the local image ID and the `repo_digest` Docker reports.
+That last field means *the digest Docker gave us*, not *a digest you can pull*: Docker fills it
+in for a locally built image too, and `nightglass/app@sha256:dc851b20…` resolves against no
+registry on earth. Nothing available at build time separates the two cases — separating them
+means asking a registry, which is precisely what a tool for air-gapped sites must not do.
+
+`alpine:3` is in the image list and is not part of the stack: it is what writes the model volume
+at restore, since a named volume lives under the daemon's storage root and the only portable way
+to fill one is from inside a container. Four megabytes, and the bundle stops depending on a tool
+it does not carry. `create` refuses if it is missing from `--images`.
+
+Three files in the model volume do **not** travel. `id_ed25519` is an OpenSSH private key, mode
+600 — Ollama's instance identity; bundling it would ship one private key to every site that
+restores this, and a fresh Ollama generates its own on first run. `id_ed25519.pub` goes with it,
+and `cache/model-recommendations.json` is the residue of [finding 14](docs/NOTES.md)'s
+ollama.com call — a cache, and a trace of the one outbound path the enclave exists to prevent.
+`make bundle-proof` asserts the archive contains no `id_ed25519`, rather than trusting that the
+exclusion stayed written.
+
+---
+
 ## Design decisions
 
 | Choice | Reason |
 |---|---|
 | **Ollama inside the enclave, not the host service** | The host has ollama on `:11434` with the models already pulled, and pointing compose at it would save re-downloading ~10 GB. It also needs `host.docker.internal:host-gateway` — a deliberate hole in the exact boundary this project exists to demonstrate — and it breaks "clone and `make up`". The model server belongs *inside* the enclave because in a real deployment there is no host to borrow from. Cost is paid once via `make pull-models`. |
-| Ollama over vLLM / TGI+TEI | **One service serves chat *and* embeddings**; vLLM and TGI are one-model-per-process and would need two containers. Ollama supports fully air-gapped operation, while vLLM needs network configuration to reach full isolation — which is the whole milestone. Models are content-addressed blobs in one directory, so the offline bundle is a tar of a folder, not an untangling of a HuggingFace cache. Honest limit: Ollama serialises concurrent requests and vLLM does ~3.2× the throughput. Irrelevant for one analyst. The line is *"Ollama for the enclave, vLLM if this became multi-tenant."* |
+| Ollama over vLLM / TGI+TEI | **One service serves chat *and* embeddings**; vLLM and TGI are one-model-per-process and would need two containers. Ollama supports fully air-gapped operation, while vLLM needs network configuration to reach full isolation — which is the whole milestone. Models are content-addressed blobs in one directory, so the offline bundle is a tar of a folder, not an untangling of a HuggingFace cache — of `models/` only, as it turned out, because the volume also holds the instance's own SSH private key and that must not travel. Honest limit: Ollama serialises concurrent requests and vLLM does ~3.2× the throughput. Irrelevant for one analyst. The line is *"Ollama for the enclave, vLLM if this became multi-tenant."* |
 | Qdrant over pgvector | Single binary, trivial offline deploy, no external dependencies. pgvector is already familiar from production work; Qdrant shows breadth and is a common air-gapped default. |
 | bge-m3 for embeddings | Genuinely multilingual. Measured: a query against its translated equivalent scores **0.842** cosine, against unrelated text in the same language **0.283** — a 0.56 separation, so it keys on meaning rather than language. Deployments are national and a corpus will not always share a language with its queries; the shipped corpus is now all English, so this is insurance rather than a demonstrated feature. One-way, since changing it means re-embedding everything. |
 | Qwen2.5 **14B** at q4_K_M | Fits consumer VRAM (~9 GB weights, ~15 GB resident with a 32k KV cache, on a 24 GB card), strong tool-calling, permissive licence. Verified chaining three distinct tools unprompted from a plain analyst question. |
@@ -786,6 +910,7 @@ carrying a note saying so and how to select them, so the bound is visible in the
 | Scene as a STAC Item, not a bespoke table | `stac_search` (§5) is a catalogue query. Modelling the catalogue as STAC keeps the door open to pointing the same tool at a real STAC API — which is what a customer deployment has — rather than at a table only this project understands. The Item is stored whole in `jsonb`; the columns beside it are extracted for indexing. |
 | A shoreline is a fourth provisioning input | Weights, documents, granules — and now GSHHG. The detector's own land mask structurally cannot separate a 100 m skerry from a 100 m hull, so an air-gapped deployment genuinely has to ship a coastline with it. Saying that is a better answer to "what does this need bundled" than pretending the list was three items long. |
 | A committed manifest, gitignored bytes | `data/sources.yaml` carries a URL, a size and a sha256 for every external input; `data/` carries none of them. The fetchers verify against it and refuse a mismatch, so "the numbers in this README" and "the bytes on your disk" are the same claim. It is also what makes the two data fetchers auditable rather than trusted: a reviewer can check what they are pointed at without running them. |
+| The bundler is Go, and the manifest is the first member | A static `CGO_ENABLED=0` binary is *why* Go is here rather than a sixth Python entry point: the thing that unpacks an air-gapped bundle cannot itself need a Python environment to exist first, and `make bundle-proof` runs it inside a `docker:dind` container that has no Python and no Go in order to show that rather than assert it. The host needs no Go either — it is built in `golang:1.26-alpine` and copied out, the way `make test` runs pytest in a container. Putting `MANIFEST.json` first is what makes `verify` one sequential pass: no seeking, no staging, one megabyte of memory across 18 GB, so a bundle can be checked on a pipe as it comes off the medium. The cost lands on `create`, which must read everything before it can write the first member — the right side to put it on, since create runs once per bundle and verify runs every time one moves. |
 | TPS over polynomial GCP fit | Measured on a real granule: polynomial leaves 40 m mean / 185 m worst-case geolocation error, TPS leaves 0.000 m. 15× slower on a cost of 0.15 s per 20,000 points. |
 | GRD not SLC | Vessel detection needs amplitude only. Phase is for interferometry, which is out of scope. |
 | Agent as a one-shot, not a service | It runs to a human gate and halts. It has nothing to serve between invocations, so a daemon wrapper would exist only to satisfy a healthcheck. |
@@ -883,6 +1008,20 @@ Stated before being asked, because each one was tested rather than assumed.
 - **The refusal path catches unsupported claims, not wrong ones.** A claim that cites a real
   chunk which does not actually say what the claim says would survive verification. Guarding
   that needs an entailment check against the cited span, which is on the three-weeks list.
+- **The bundle's wheelhouse does not make the image rebuildable offline.** §M7 words the bundler
+  as "`docker save` + pip wheelhouse + model blobs", which invites the reading that the three
+  together reconstitute the system from source. They do not. The runtime image also needs
+  `curl`, `ca-certificates` and `libexpat1`, plus `poppler-utils` in the fetcher stage, and a
+  wheelhouse pins none of them — an offline `docker build` would still go looking for a Debian
+  mirror. What makes a restored site *run* is the saved images. What the 172 MB of wheels buys
+  is smaller and real: `pip install --no-index --find-links`, to patch a dependency inside a
+  running container without a network. Stated because that gap is otherwise found the hard way.
+- **`nightglass-bundle verify` proves integrity, not authenticity.** It proves the bundle you
+  have is the bundle that was built, given one manifest digest you obtained by another route. It
+  says nothing about who built it, and there is no signature anywhere in the format.
+- **A genuinely cold `make pull-models` is still untested**, open since M1 and unchanged by any
+  of this. The bundle routes around it — a site restoring from one never runs the pull path — so
+  the gap is now less likely to be hit and exactly as real as it was.
 - **Dark ≠ guilty.** See the framing at the top.
 
 **Related work.** Magalhães, Falcão & Barbosa (2025), IST Lisbon — Sentinel-2 optical vessel
@@ -904,9 +1043,20 @@ exists for this mission.
   worth ~130 m at 10 kn — inside the current radius, but it is free accuracy.
 - Multi-scene temporal tracking, so a detection becomes a track
 - Coherent change detection with SLC pairs
-- Offline CI/CD — the bundler (`docker save` + wheelhouse + model blobs → one tarball with a
-  SHA256 manifest and a `verify` subcommand)
-- SBOM via syft and image digests pinned rather than tags
+- **Sign the bundle.** `nightglass-bundle verify` proves integrity — this is the bundle that was
+  built — against one manifest digest carried out of band. It proves nothing about *who* built
+  it. Authenticity needs key custody, revocation and an offline root, which is a programme
+  rather than a subcommand, and claiming it without those would be the one dishonest line in
+  this file.
+- **An offline `docker build`.** The wheelhouse covers Python and nothing else; the runtime image
+  also needs four apt packages, so rebuilding from source inside an enclave still wants a Debian
+  mirror. Carrying one is a different artifact from carrying wheels.
+- SBOM via syft and image digests pinned rather than tags. Worth knowing before starting: the
+  bundle manifest records a `repo_digest` for all six images, and for the two built here that
+  value resolves against no registry, because they were never pushed. Docker reports the field
+  either way and nothing local distinguishes them — telling them apart means asking a registry,
+  which is the one thing this tool must not do. Digest pinning is therefore a real improvement
+  for four of the six and a no-op for the two that matter most.
 - **Entailment checking on citations.** Verification currently proves a cited chunk *exists*.
   Proving the chunk *supports the claim* needs a second pass — a natural-language inference
   model, or the chat model re-asked per claim against its cited span alone — and that closes
@@ -923,7 +1073,14 @@ exists for this mission.
 docker-compose.yml        the enclave — one internal network, no egress
 .mcp.json                 the MCP attach, committed — clone and Claude Code has the tools
 docker/                   application image (runtime · fetcher · dev), postgis init
-scripts/                  preflight, the four proofs, the demo, its pacing and its check
+  Dockerfile.bundler      golang:1.26-alpine -> scratch; the host never needs Go
+scripts/                  preflight, the five proofs, the demo, its pacing and its check
+bundler/                  Go. the offline transfer bundle — a second language, on purpose
+  cmd/bundle/main.go      nightglass-bundle create|verify|restore|inspect
+  internal/manifest/      the manifest, and every way it can be internally incoherent
+  internal/bundle/        create · verify · restore — one streaming pass, six refusals
+  internal/sources/       reads data/sources.yaml, so a bundle cannot outrun M6's manifest
+  internal/dockercli/     docker save · load · the volume round trip, over os/exec
 corpus/
   sources.yaml            manifest of the 39 public documents — URLs, not documents
   synthetic/              21 INTREP/INTSUM memos, UNCLASSIFIED // SYNTHETIC, committed
@@ -972,9 +1129,10 @@ data/
 docs/
   EXECUTION_SPEC.md       what to build
   PRE_DEV_GUIDE.md        verified data access paths
-  NOTES.md                decisions, corrections, measurements — 56 numbered findings
+  NOTES.md                decisions, corrections, measurements — 60 numbered findings
   HANDOVER_M6.md          the brief M6 was built from, and what came of it
   HANDOVER_M7.md          what is left, and why it is optional
+  superpowers/specs/      the bundler's design, written before it was built
   demo.cast · demo.mp4 · demo.gif    the walkthrough: record, watch, embed
   evidence/               committed renders — the snapshot the numbers come from
 ```

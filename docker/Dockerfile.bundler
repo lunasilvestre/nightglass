@@ -1,0 +1,43 @@
+# NIGHTGLASS — the offline transfer bundler.
+#
+# The host never needs a Go toolchain. `scripts/preflight.sh` checks for docker
+# and make and that is still the whole contract; this file is why adding a
+# second language did not add a second prerequisite.
+#
+# The output is a static binary and that is the argument for Go being here at
+# all: the thing that unpacks an air-gapped bundle cannot itself need a Python
+# environment, or a libc, or a package index to exist first. CGO_ENABLED=0 with
+# no cgo-linked imports gives an ELF that runs on any x86-64 Linux, including
+# one with nothing installed but docker.
+
+FROM golang:1.26-alpine AS build
+
+WORKDIR /src
+
+# Dependencies are vendored, so this build needs no package proxy — the same
+# property the bundle itself is about, applied to the tool that makes it.
+COPY bundler/go.mod bundler/go.sum ./
+COPY bundler/vendor ./vendor
+COPY bundler/ ./
+
+# -trimpath so the binary carries no build-machine paths; -s -w because a
+# symbol table nobody will read is a megabyte that crosses the air gap for
+# nothing.
+RUN CGO_ENABLED=0 GOFLAGS=-mod=vendor \
+    go build -trimpath -ldflags '-s -w' -o /out/nightglass-bundle ./cmd/bundle \
+ && /out/nightglass-bundle --version
+
+
+# `go test` runs here rather than on the host, the same way `make test` runs
+# pytest in a container. --network none is not set on the build, because a
+# docker build has no network isolation flag; the tests themselves touch
+# nothing outside their t.TempDir().
+FROM build AS test
+RUN CGO_ENABLED=0 GOFLAGS=-mod=vendor go vet ./... \
+ && go test ./... -count=1
+
+
+# The delivery stage. `docker build --target bin --output bundler/bin` copies
+# the binary onto the host with no image left behind.
+FROM scratch AS bin
+COPY --from=build /out/nightglass-bundle /

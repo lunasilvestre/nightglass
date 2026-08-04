@@ -31,6 +31,19 @@ venv/
 *.tiff
 !docs/**/*.png
 
+# --- the offline bundle (M7) ----------------------------------------------
+# ~18 GB of images, model blobs, wheels and granules. Same rule as data/: the
+# manifest is committed and the bytes are not -- except here the manifest ships
+# INSIDE the artifact, so what is committed is the code that writes it.
+nightglass-bundle-*.tar
+nightglass-bundle-*.tar.sha256
+nightglass-bundle-*.tar.staging/
+nightglass-bundle-*.tar.part
+bundle-restore/
+# Built by `make bundler` from docker/Dockerfile.bundler. A 3.4 MB binary that
+# one command reproduces is not a thing to carry in git history.
+bundler/bin/
+
 # --- local tooling --------------------------------------------------------
 .DS_Store
 *.log

@@ -4,6 +4,125 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
+## M7 item 1 — done 2026-08-04. A bundle that refuses, and a size budget that was wrong.
+
+§M7's first item, the Go bundler. Taken because it is the only one that adds a language and
+because `data/sources.yaml` plus `spatial/archive.py` were already half of it — the bundler
+extends M6's manifest from *fetch* to *carry*, and the failure modes `archive.py` names (a
+cached file that is the right size and the wrong bytes; a partial transfer that opens without
+complaint) are the same failure modes a bundle verifier has.
+
+`bundler/`, Go 1.26, stdlib plus `gopkg.in/yaml.v3` (vendored, so the tool that makes an
+offline artifact is itself buildable offline). 3.4 MB, `CGO_ENABLED=0`, statically linked. Four
+subcommands: `create`, `verify`, `restore`, `inspect`. `make bundle-proof` is the round trip, on
+a fixture, in 60 s.
+
+**The shape.** A bundle is a tar whose first member is `MANIFEST.json`. That is what makes
+`verify` one sequential pass — no seeking, no staging, one megabyte of memory across 18 GB —
+which is what lets it run on a pipe as the bundle comes off the transfer medium. The cost is
+that `create` has to read everything before it can write the first member, and that is the right
+side to put it on: create runs once per bundle, verify runs every time one moves.
+
+**`restore` reuses `verify`'s pass rather than reimplementing it.** One `walk` function, one
+sink parameter: nil discards the bytes, non-nil writes them. A restore with its own copy of the
+checks is a restore whose checks can drift from the ones the operator ran.
+
+**Two small ones not worth a number.** `docker run -v <relative>:/out` treats the source as a
+**named volume**, not a directory, and fails with a complaint about invalid characters in a
+volume name — which is a long way from "that path is relative". The staging directory defaulted
+to `<out>.staging` and was relative, so the wheelhouse step died 3.5 minutes into a build with
+everything else already staged; `filepath.Abs` at the argument boundary is the fix. Separately,
+`short()` elided long paths to 46 *bytes* while `fmt`'s `%-46s` pads in *runes*, so every elided
+line sat two columns out — the ellipsis is one column and three bytes. Both were caught by tests
+rather than by looking, which is the correct direction for this kind of thing.
+
+### 57. ⭐⭐ The M7 handover's bundle budget was wrong by 7 GB, and its conclusion was inverted
+
+`docs/HANDOVER_M7.md` sized the bundle at "~21 GB before a pip wheelhouse" and concluded that
+`ollama/ollama:0.32.5` at 8.04 GB was "the whole cost, essentially", raising the question of
+whether that image belonged in the bundle at all when the model blobs were carried separately.
+
+Both numbers came from the `docker images` SIZE column, which reports the **unpacked** snapshot
+on disk. `docker save` writes the **compressed** layer blobs. Measured, on this machine:
+
+```
+                            docker images    docker save
+ollama/ollama:0.32.5             8.04 GB        3.26 GB
+nightglass/app:dev               1.16 GB        0.27 GB
+nightglass/fetcher:dev           1.21 GB        0.27 GB
+postgis/postgis:17-3.5           0.89 GB        0.22 GB
+qdrant/qdrant:v1.18.3            0.27 GB        0.08 GB
+                                --------       --------
+all five, one archive           11.57 GB        4.02 GB
+```
+
+`docker image inspect --format '{{.Size}}'` agrees with the `docker save` column to within a
+megabyte, which is the cheap way to get the real number without writing 4 GB.
+
+So the ollama image was never the cost centre. **The model blobs are: 10.15 GB, 56% of the
+bundle**, and nothing can be done about that because GGUF is already quantised. The question the
+handover raised — is the ollama image needed when the blobs travel separately — also answers
+itself once it is 3.26 GB rather than 8, and it always had the same answer for a different
+reason: the blobs are weights and the image is the server that reads them.
+
+**General form, and it is finding 21's again in a different costume.** A number copied out of a
+tool's summary column is a measurement of that column. `docker images` is answering "how much
+disk is this using", `docker save` is answering "how much will I have to carry", and those are
+different questions that happen to share a unit.
+
+### 58. ⭐ The model volume holds a private key, and a naive tar of it ships one key to every site
+
+`scripts/seed-models-from-host.sh` and the M0 decision table both describe the model store as
+"a tar of one directory", which is true of `models/` and not true of the volume:
+
+```
+/root/.ollama/
+├── id_ed25519        387 B, mode 600, -----BEGIN OPENSSH PRIVATE KEY-----
+├── id_ed25519.pub     81 B
+├── cache/model-recommendations.json    1315 B
+└── models/           blobs/ + manifests/
+```
+
+`id_ed25519` is Ollama's instance identity. Bundling it would ship one private key to every site
+that restores the bundle, and a fresh Ollama generates its own on first run — so carrying it
+costs the property that two deployments are distinct and buys nothing. `cache/` is the residue
+of **finding 14**'s ollama.com call: a cache, and a trace of the one outbound path the enclave
+exists to prevent. Only `models/` travels, and `make bundle-proof` asserts the archive contains
+no `id_ed25519` rather than trusting that the exclusion stayed written.
+
+Worth noting the direction this was found from: the volume was inspected to answer a question
+about *size*, and the keypair was in the listing. Looking at the artifact rather than at the
+metric, again.
+
+### 59. Go's `flag` stops at the first positional, and the failure is a flag that does nothing
+
+`nightglass-bundle restore bundle.tar --into /r --install --repo .` parsed as one positional and
+four ignored arguments, because `flag.Parse` stops at the first non-flag token. The refusal was
+`restore needs one bundle` — which is at least loud.
+
+The dangerous version is the one that is not. `verify bundle.tar -v` would have silently dropped
+`-v`, and if the flag order had been the other way round for `--install`, a restore would have
+verified, installed nothing, and exited 0. **A flag that silently does not apply is worse than an
+argument error**, and it is the same category as finding 34: partiality that does not announce
+itself. Fixed by re-parsing the remainder after lifting the positional out, so flags on either
+side of the file work.
+
+### 60. `FROM runtime AS fetcher` does not mean the two images share the expensive layer
+
+`nightglass/app:dev` and `nightglass/fetcher:dev` share **7 layers of 13 and 14**. The 743 MB
+`pip install` layer is not one of them, despite the Dockerfile building `fetcher` from
+`runtime`. They were built at different times, and a pip install is not reproducible: the same
+`RUN` produces different bytes, so the layer digest diverges and everything above it with it.
+
+Consequence for the bundle: saving both costs 0.50 GB against the ~0.27 GB they would cost if
+they shared, and a single `docker save` of all six images recovers only 67 MB of cross-image
+dedup — 1.6%, which is why the bundler writes one tar per image and buys a failure message that
+names which image instead. Building both in one `docker compose build` would collapse it
+properly. Not done: it is a docker-build concern rather than a bundler one, and 230 MB on 18 GB
+did not justify touching a build that works.
+
+---
+
 ## M6 — done 2026-08-04. A clone can now reproduce it, and reproducing it found a bug.
 
 `make fetch-granules` and `make fetch-ais` were the last two things standing between this
@@ -436,6 +555,13 @@ handover: **the Go bundler** (the only one that adds a language, and `data/sourc
 `spatial/archive.py` are already half of it), **the k3s NetworkPolicy** (the same boundary
 expressed in a second substrate, and the spec calls it the best detail in the list), **the eval
 set** (cheapest, turns a sentence in Limitations into a number), **SBOM and digest pinning**.
+
+**Item 1 is done** — see the M7 section at the top of this file, findings 57–60. Three remain,
+and the order above still holds for them. Two things item 1 changed for whoever takes the rest:
+the bundle manifest is the only integrity anchor `nightglass/app:dev` and `nightglass/fetcher:dev`
+have, which is most of the argument for item 4 already made; and `bundler/` establishes that a
+second language costs the host nothing if it is built in a container and delivered as a static
+binary, which is the same trick a k3s chart would want for any tooling it needs.
 
 ### Still open, in priority order
 

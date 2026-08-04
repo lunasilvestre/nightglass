@@ -1,5 +1,10 @@
 # Handover prompt — M7
 
+> **Item 1 (the Go bundler) is done, 2026-08-04.** `bundler/`, `make bundle`, `make bundle-proof`,
+> README section *Crossing the gap*, findings 57–60. Two things below turned out to be wrong and
+> are marked **[CORRECTED]** where they appear: the size budget, and the conclusion drawn from it.
+> The rest of this file stands, and items 2–4 are untouched.
+
 **One sentence, if that is all you want to paste:**
 
 > Read `docs/HANDOVER_M7.md` and the "→ HANDOFF TO M7" section of `docs/NOTES.md`, then pick one
@@ -75,11 +80,32 @@ volume       nightglass_ollama_models  9.40 GB
                                       ~21 GB before a pip wheelhouse
 ```
 
+**[CORRECTED]** — every image figure above is the `docker images` SIZE column, which reports the
+*unpacked* snapshot on disk. `docker save` writes the compressed layer blobs, and the two differ
+by 2.9×: the five images are **4.02 GB** in one archive, not 11.57 GB, and `ollama/ollama` is
+3.26 GB rather than 8.04. So the ollama image is not "the whole cost" and the question of
+whether it belongs in the bundle does not arise — **the model blobs are, at 10.15 GB and 56% of
+an 18 GB bundle**, and they cannot shrink because GGUF is already quantised. The cheap way to get
+the real number is `docker image inspect --format '{{.Size}}'`, which agrees with `docker save`
+to within a megabyte. Finding 57.
+
 `docker save` does not dedupe layers across images the way a registry does, so treat that as a
-floor. Two consequences worth deciding up front rather than discovering: whether the ollama
+floor. **[CORRECTED]** — measured, the dedup on offer across all six images is 67 MB, 1.6%, so
+the bundler writes one tar per image and spends it on a failure message that names which image.
+Related and worse: `nightglass/app:dev` and `nightglass/fetcher:dev` share only 7 layers of 13
+and 14 despite `FROM runtime AS fetcher`, because the 743 MB pip layer is not reproducible across
+builds (finding 60).
+
+Two consequences worth deciding up front rather than discovering: whether the ollama
 *image* is even needed in the bundle when the model *blobs* are already carried separately, and
 whether `verify` streams (hash while reading, never unpack) — over 21 GB the difference between
 streaming and staging is the difference between a tool someone runs and one they avoid.
+
+**[RESOLVED]** — the image is needed (blobs are weights, the image is the server that reads
+them). `verify` streams, and the mechanism that makes it possible is putting `MANIFEST.json`
+first in the tar: one sequential pass, no seeking, one megabyte of memory over 18 GB, and it
+therefore works on stdin. A third thing nobody had flagged: the model volume also holds an
+OpenSSH **private key**, and only `models/` may travel (finding 58).
 
 Budget the session for the verify round-trip, not for the writer. Producing a tarball is an
 afternoon; proving one restores into a clean Docker context is the milestone.
