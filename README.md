@@ -69,45 +69,6 @@ it is serving.
 
 ![NIGHTGLASS architecture — the sealed enclave, the host beside it, and the profile-gated provision network](docs/architecture.svg)
 
-<details>
-<summary>The same topology in ASCII</summary>
-
-```
-                    ┌─────────────────────── HOST ───────────────────────┐
-                    │                                                    │
-                    │   ingest (ASF · DMA · GFW)      Claude Desktop      │
-                    │   credentials live here                │           │
-                    │          │                             │ stdio     │
-                    │          │ loads data                  │ via       │
-                    │          │ before sealing        docker exec       │
-   ╔═══════════════ │ ═════════▼═════════════════════════════▼═══════════╡
-   ║  nightglass_enclave        internal: true — NO ROUTE OUT             ║
-   ║                                                                     ║
-   ║   ┌──────────┐   ┌──────────┐   ┌──────────┐                        ║
-   ║   │  ollama  │   │  qdrant  │   │ postgis  │                        ║
-   ║   │  qwen2.5 │   │  intel   │   │  scenes  │                        ║
-   ║   │  bge-m3  │   │  chunks  │   │  AIS     │                        ║
-   ║   └────▲─────┘   └────▲─────┘   └────▲─────┘                        ║
-   ║        └──────────────┼──────────────┘                              ║
-   ║                  ┌────┴─────┐                                       ║
-   ║                  │   api    │  FastAPI — the six tools              ║
-   ║                  └────┬─────┘                                       ║
-   ║              ┌────────┴────────┐                                    ║
-   ║          ┌───┴───┐         ┌───┴───┐                                ║
-   ║          │  mcp  │         │ agent │  LangGraph, one-shot,          ║
-   ║          └───────┘         └───────┘  halts at the human gate       ║
-   ╚═════════════════════════════════════════════════════════════════════╝
-
-        nightglass_provision ─┬─ model-puller      ──► internet  (profile-gated;
-                              ├─ corpus-fetcher    ──► internet   the ONLY services
-                              ├─ granule-fetcher   ──► internet   with egress, and
-                              ├─ ais-fetcher       ──► internet   none of them runs
-                              ├─ coastline-fetcher ──► internet   during operation)
-                              └─ gfw-fetcher       ──► internet
-```
-
-</details>
-
 The boundary is one line of `docker-compose.yml`: the `enclave` network is declared
 `internal: true`, so Docker attaches no default route and installs no NAT rule. There is no
 egress path to misconfigure, and nothing to keep in sync as services are added. Default deny by
