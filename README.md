@@ -18,15 +18,16 @@ Deliberately shaped as the open-source shadow of ICEYE Ocean Vision Detect.
 > transponder failure, low-power class B sets, vessels never required to carry AIS at all. The
 > system surfaces candidates. The analyst adjudicates.
 
-**Status: M4 — the tool layer.** The enclave stands up and is sealed (M0), runs inference
+**Status: M5 — the agent and its human gate.** The enclave stands up and is sealed (M0), runs inference
 offline (M1), answers from a 60-document corpus with every claim traced to a retrievable chunk
 or refuses (M2), runs its own vessel detector over real Sentinel-1 pixels and correlates the
 detections against real AIS in space *and* time (M3), and serves all six `EXECUTION_SPEC.md` §5
-tools over both HTTP and MCP (M4). Over the Danish validation AOI, 45 of 60 detections match a
-vessel that was actually there, with **88% recall on AIS vessels ≥ 30 m**. The local 14B model
+tools over both HTTP and MCP (M4), and runs a LangGraph agent that halts at a human gate and
+resumes in a different container (M5). Over the Danish validation AOI, 45 of 60 detections match
+a vessel that was actually there, with **88% recall on AIS vessels ≥ 30 m**. The local 14B model
 chains three tools unaided from a Portuguese question; Claude Code drives the same tools over a
-pipe from outside the enclave. Next is the LangGraph agent and its human-in-the-loop gate (M5).
-`NOTES.md` is the running decision log.
+pipe from outside the enclave. What remains is packaging and the recording (M6). `NOTES.md` is
+the running decision log.
 
 ---
 
@@ -115,6 +116,7 @@ make air-gap-proof        # §M1: no egress, inference works anyway
 make rag-proof            # §M2: ungrounded vs grounded, and the refusal path
 make dark-proof           # §M3: detector, AIS, the space-time join, and the renders
 make tool-proof           # §M4: the tools over MCP, and the local model chaining them
+make agent-proof          # §M5: halts at the human gate, resumes in a different container
 ```
 
 `make` with no target lists everything.
@@ -480,6 +482,67 @@ so the number is never quoted without it. GFW's own `matched` flags on the 49 ag
 `Match`: they matched against their AIS upstream, and claiming that as our correlation would be
 claiming their work.
 
+## The agent, and a gate that actually stops
+
+`parse → plan → tools → correlate → draft_intrep → HUMAN_GATE → release`, as a LangGraph state
+machine against a **Postgres checkpointer**. `make agent-proof` runs it end to end.
+
+The halt is demonstrated the only way that means anything — the drafting container *exits*, and
+a different one picks the run up:
+
+```
+$ make ask Q="Houve alguma embarcação sem correspondência AIS em 17 de julho de 2026?"
+⏸  HUMAN_GATE — the graph has stopped
+  marking             UNCLASSIFIED // SYNTHETIC // DRAFT — NOT RELEASABLE
+  claims              18
+  unsupported claims  0
+
+$ psql -c "select thread_id, count(*), sum(length(blob)) from checkpoint_blobs group by 1"
+    thread_id    | channels | state
+-----------------+----------+--------
+ ng-cad785dbbc71 |       10 | 104 kB
+
+$ make approve T=ng-cad785dbbc71          # a different container, minutes later
+resumed from persisted state — RELEASED
+```
+
+`MemorySaver` would satisfy the same API and keep the state inside the process that is supposed
+to have stopped; a bare `input()` would block a thread and lose everything if it died. Being
+precise about what this buys, because the obvious stronger claim is false: plain SQL gives you
+the run's existence, its thread, where it stopped and how much state it holds. The *values* are
+msgpack, so reading the payload goes through the checkpointer — which is what
+`nightglass-agent show` does for the reviewer.
+
+### Where the model is allowed to act
+
+The interesting decisions in this graph are about where the model is kept *out*.
+
+| node | who decides | why |
+|---|---|---|
+| `parse` | model | language, lookback, whether documents are needed — all recoverable if wrong |
+| | **not** the model | **the bbox.** §3.1 makes the AOI configuration. A model inventing one searches the wrong ocean and returns cleanly |
+| `plan` | nobody | facts about config and the database, all checkable |
+| `tools` | model | which documentary context the report needs — bounded, with the max-iteration and repeat guards |
+| `correlate` | nobody | runs deterministically over the configured AOI whatever the model did |
+| `draft_intrep` | mixed | findings templated from the `CorrelationResult`; assessment generated, cited, scrubbed |
+| `HUMAN_GATE` | the human | the only path to `releasable=True` |
+| `release` | nobody | prose assembled from the report's own fields |
+
+That split is a fix for a measured failure, not caution for its own sake. At M4 the model got
+every per-scene count right, listed thirty real detection ids, and still wrote *"das 60 detecções
+… 15 não"* — conflating two scenes while summarising them. No prompt fixes that reliably, so the
+released answer is not generated: every line comes from a `Claim` or a computed caveat.
+
+On the first end-to-end run the rate guard earned its place unprompted. The model wrote a
+proportion into the assessment section, and the draft came back carrying a caveat nobody typed:
+
+```
+1 afirmação(ões) geradas foram removidas antes da redação por indicarem
+uma taxa de deteções sem correspondência.
+```
+
+The prompt layer and the schema layer both let it through. The check caught it.
+
 ### What the numbers do *not* say
 
 - **25% unmatched is not a 25% dark-vessel rate.** Published work on Danish waters finds ~5%
@@ -810,7 +873,9 @@ src/nightglass/
     cli.py                nightglass-tools list|call|chain
   api/                    FastAPI — the six tools over HTTP
   mcp/                    FastMCP — the same six over stdio + sse
-  agent/                  LangGraph (M5)
+  agent/
+    graph.py              parse → plan → tools → correlate → draft_intrep → GATE → release
+    main.py               nightglass-agent ask|pending|show|approve|reject
 docs/evidence/            committed renders — the snapshot the README's numbers come from
 data/                     gitignored — 6.2 GB of SAR and AIS, the corpus, the coastline
   out/                    rendered evidence, regenerated by `make dark-proof`

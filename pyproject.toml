@@ -47,6 +47,13 @@ viz = [
 agent = [             # M5
   "langgraph>=0.2",
   "langchain-core>=0.3",
+  # The checkpointer is what makes §M5's "genuinely halts with inspectable
+  # persisted state" true rather than asserted. MemorySaver would satisfy the
+  # API and lose the claim: the state would live in the process that is
+  # supposed to have stopped. Postgres is already in the stack, so the halted
+  # graph is a row someone can SELECT, and a resume can happen in a different
+  # container invocation entirely.
+  "langgraph-checkpoint-postgres>=2.0",
 ]
 dev = [
   "pytest>=8.0",

@@ -4,7 +4,139 @@ Decision log, things tried that failed, open questions. Per EXECUTION_SPEC §9.
 
 ---
 
-## → HANDOFF TO M5 (read this first in a fresh session)
+## M5 — done 2026-08-04. A graph that genuinely stops, and an answer nobody generated.
+
+`make agent-proof` is the milestone: a Portuguese question drafts an INTREP, the graph halts at
+`HUMAN_GATE`, the **container exits**, and a different container resumes it from Postgres.
+
+### 41. ⭐ "Inspectable persisted state" is true, and not in the way the docstring first claimed
+
+The checkpointer is `PostgresSaver`, not `MemorySaver`, and the difference is the milestone:
+`MemorySaver` satisfies the same API while keeping the state inside the process that is supposed
+to have stopped. With Postgres the halted run outlives its container — verified by drafting in
+one and releasing from another, with nothing shared but the database.
+
+But the obvious stronger claim is false, and an early draft of `graph.py` made it. LangGraph's
+serialiser writes **msgpack**, not JSON, so `convert_from(blob,'UTF8')` fails on every value
+channel:
+
+```
+   channel   |  type   | bytes
+-------------+---------+-------
+ correlation | msgpack | 78746
+ intrep      | msgpack | 17600
+ chunks      | msgpack |  7094
+```
+
+What plain SQL gives you is real and worth stating precisely: the run exists, which thread it is,
+where it stopped, which channels it has populated and how big they are. Reading the *payload*
+goes through the checkpointer — which is what `nightglass-agent show` does. Checked rather than
+assumed, and the docstring now says the narrower true thing.
+
+### 42. ⭐ The rate scrubber fired inside the graph, on the first real run
+
+M4 built `scrub_rate_claims` as a backstop behind two weaker layers and noted it was the only
+one that was a check rather than a request. On M5's first end-to-end run over Denmark the draft
+came back with a caveat nobody wrote by hand:
+
+> *1 afirmação(ões) geradas foram removidas antes da redação por indicarem uma taxa de deteções
+> sem correspondência.*
+
+The model, asked for a documentary assessment, wrote a rate into it. The guard removed the claim
+and recorded that it had. Neither the prompt layer nor the schema layer stopped it; the check
+did. That is the entire argument for having a check, arriving unprompted.
+
+### 43. A display format is not an interchange format
+
+The `tools` node first tried to rebuild `Chunk` objects out of what `chaining.py` hands the
+model — and crashed on `doc_id` and `score` missing. Correct failure: that structure is a
+*compaction for a context window*, it drops fields on purpose (finding 34), and coupling the
+report's evidence to it would have meant the citations were whatever happened to be convenient
+to show a 14B model.
+
+The fix takes the model's **queries** rather than its results and re-runs `doc_search` in the
+graph, which costs one embedding call and yields real `Chunk`s with scores. The model still
+chooses what to look up — the genuine judgement — and the evidence is retrieved properly.
+
+### 44. Where the model is allowed to act, and where it is not
+
+Worth recording as a whole, because it is the shape of the milestone rather than one bug:
+
+| node | who decides | why |
+|---|---|---|
+| `parse` | model | language, lookback, whether documents are needed — all recoverable if wrong |
+| | **not** model | **the bbox.** §3.1 makes the AOI configuration; a model inventing one searches the wrong ocean and returns cleanly |
+| `plan` | nobody | facts about config and the database, all checkable — asking a model would be asking it to guess |
+| `tools` | model | which documentary context the report needs, bounded, with M4's two guards |
+| `correlate` | nobody | runs deterministically over the configured AOI whatever the model did |
+| `draft_intrep` | mixed | findings templated from the `CorrelationResult`; assessment generated, cited, scrubbed |
+| `HUMAN_GATE` | human | the only path to `releasable=True` |
+| `release` | nobody | prose assembled from the report's own fields |
+
+The M4 conflation bug — every per-scene count right, and *"das 60 detecções … 15 não"* across two
+scenes — is structurally unreachable in the released answer now: nothing generates it.
+
+### 45. The loop-breaker's two-strike shape survived contact with a second use
+
+`chain()` gained a `system` override so the graph could narrow it to context-gathering while
+inheriting the guards unchanged. On the M5 runs the model called `correlate` inside the tools
+node despite being told the correlation runs afterwards — harmless, because its numbers are
+discarded and the deterministic node runs regardless, which is the point of putting the backbone
+outside the model's reach rather than instructing it harder.
+
+### Performance, M5
+
+| step | time |
+|---|---|
+| `ask` to the gate (parse + tools + correlate + draft) | ~2 min, most of it the 14B model |
+| `approve` — resume, release, render | ~4 s |
+| `pending` / `show` | ~3 s, dominated by container start |
+
+---
+
+## → HANDOFF TO M6 (read this first in a fresh session)
+
+**M0–M5 are done.** What remains is §M6: the README's architecture diagram, the design-decision
+table, the licence and limitations sections — mostly written already — and a 90-second recording.
+
+### Run this first
+
+```bash
+cd ~/Documents/dev/nightglass
+make preflight && make up
+make dark-proof     # M3 — the spatial chain
+make tool-proof     # M4 — MCP over stdio, the local model chaining, the INTREP guard
+make agent-proof    # M5 — halts at the gate, resumes in a different container
+```
+
+### The one thing M6 has to decide
+
+**§6 says record the demo over Portugal, and Portugal has no AIS.** The tools are honest about
+it — `ais_match` refuses, `correlate` returns detections with the verdict withheld, the INTREP
+leads with "these are detections, not dark detections" — but a recording of a refusal is a
+strange demo. Three options, in the order they are worth trying:
+
+1. **Record Portugal as detection + cross-check.** `make fetch-gfw && make gfw-compare` gives a
+   detection-for-detection comparison against a published layer over the identical granule, plus
+   finding 38's fragmentation result. Add the Portuguese RAG answer and the INTREP with its
+   refusal. This is the honest Portuguese demo and it needs nothing new built.
+2. **Record Denmark for the correlation half**, Portugal for the language and the cross-check.
+   Two AOIs on screen is §3.1's argument made visible rather than asserted.
+3. **Catch a live Portuguese overpass** with an aisstream recorder running. Real, but it is a
+   multi-day dependency and the feed still cannot support a rate.
+
+Option 1 or 2. Do not let the recording imply a Portuguese dark-vessel finding.
+
+### Everything else worth knowing is in the M5 handoff below
+
+Still accurate: the tool surface, the guards, the AOI collisions in the Makefile
+(`AOI` defaults to kattegat; `GFW_AOI` and `AGENT_AOI` exist because of it), and the host state.
+
+---
+
+## → HANDOFF TO M5 — ✅ SUPERSEDED
+
+*M5 is done. Kept for the reasoning it records; the current handoff is above.*
 
 **M0–M4 are done.** `make tool-proof` runs the whole tool layer and is the fastest way to see the
 state of things. Everything below is what a new session cannot infer from the specs or code.

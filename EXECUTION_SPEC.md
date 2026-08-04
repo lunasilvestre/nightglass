@@ -457,7 +457,14 @@ At some point he should make a non-trivial change himself. Hands in it beats rea
         Portuguese question; 45 matched / 15 dark, and the 15 ids it reported match the
         database exactly. correlate reuses recorded detector runs (ids stay stable);
         draft_intrep refuses a dark rate on BOTH the source and the precision side.
-[ ] M5  LangGraph agent, real interrupt at HIL gate
+[x] M5  LangGraph agent, real interrupt at HIL gate   ← 2026-08-04
+        parse → plan → tools → correlate → draft_intrep → HUMAN_GATE → release,
+        against a Postgres checkpointer. Portuguese question drafts an 18-claim
+        INTREP (0 unsupported), the CONTAINER exits at the gate, and a different
+        container resumes from 104 kB of persisted state and releases it.
+        Reject withholds; a released run cannot be re-approved. The rate scrubber
+        fired unprompted on the first real run — the model wrote a proportion
+        into the assessment and the check removed it.
 [ ] M6  README, diagram, 90-second recording
 [ ] M7  optional extras
 ```

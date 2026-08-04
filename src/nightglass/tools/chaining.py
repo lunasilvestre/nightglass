@@ -134,14 +134,21 @@ def chain(
     num_ctx: int = 16384,
     timeout: float = 600.0,
     verbose: bool = False,
+    system: str | None = None,
 ) -> ChainResult:
-    """Let the local model answer `question` by calling the §5 tools."""
+    """Let the local model answer `question` by calling the §5 tools.
+
+    `system` overrides the standing instructions. §M5's graph uses it to narrow
+    this loop to gathering documentary context — its spatial numbers would be
+    discarded there, because the correlation runs deterministically — while
+    reusing the two guards below, which were measured rather than guessed.
+    """
     host = (ollama_host or settings.ollama_host).rstrip("/")
     model = chat_model or settings.ollama_chat_model
     aoi = settings.aoi
 
     messages: list[dict[str, Any]] = [
-        {"role": "system", "content": _SYSTEM},
+        {"role": "system", "content": system or _SYSTEM},
         {
             "role": "system",
             "content": (

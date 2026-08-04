@@ -43,7 +43,7 @@ WORKDIR /app
 # whatever the base image happens to ship.
 COPY pyproject.toml README.md ./
 COPY src/nightglass/__init__.py src/nightglass/__init__.py
-RUN pip install --no-cache-dir -e ".[services,spatial,viz]"
+RUN pip install --no-cache-dir -e ".[services,spatial,viz,agent]"
 
 COPY src/ src/
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
