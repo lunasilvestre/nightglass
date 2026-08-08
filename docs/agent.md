@@ -75,7 +75,7 @@ The prompt layer and the schema layer both let it through. The check caught it.
   collapses matched detections 45 → 21 while unmatched barely moves, 15 → 14. Which is itself
   informative: the unmatched residue is *isolated*, not fragments of real ships.
 - **No AIS is loaded for Portugal, and the tools refuse rather than guess.** `ais_match` raises
-  instead of returning 133 unmatched detections, and `correlate` returns the detections with the
+  instead of returning 71 unmatched detections, and `correlate` returns the detections with the
   verdict withheld. "We searched a feed and found nothing" and "there was no feed to search" are
   different statements, and only the first one is a dark detection.
 - **Detected length is not a reliable size estimate.** Detecting at 8σ and measuring at the same

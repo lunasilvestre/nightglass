@@ -128,8 +128,9 @@ an efficiency argument and is a correctness one: detection ids are assigned *aft
 and AOI filters, so re-running renumbers them, and `ais_match(["…:det_00005"])` would silently
 mean a different vessel. Reuse is gated on identity of every recorded input — detector, version,
 polarisation, AOI box, coastline, and every field of `DetectorConfig`, which is checkable because
-`detect.runs.parameters` is jsonb. Measured: reused and recomputed give 60 detections that are
-byte-identical on id, position, length, heading and confidence, in 0.9 s against 13.9 s.
+`detect.runs.parameters` is jsonb. Measured: reused and recomputed give 60 detections — the count
+this scene gave before fragment merging — that are byte-identical on id, position, length,
+heading and confidence, in 0.9 s against 13.9 s.
 
 **`correlate` is bounded to one scene per call.** Reading a granule takes 14–20 s. The
 alternative — return a run id and let the client poll — needs a job table and a lifecycle, which

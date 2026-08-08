@@ -1,6 +1,15 @@
 # NIGHTGLASS — Notes
 
-Decision log, things tried that failed, open questions.
+Decision log, things tried that failed, open questions. Newest first.
+
+Entries are kept as written, so they are a record rather than a summary and the numbers in an
+older one may have been superseded by a later one. Three working documents cited throughout —
+`PRE_DEV_GUIDE.md`, `EXECUTION_SPEC.md` and `docs/HANDOVER_M7.md` — were the briefs this was
+built against and were retired from the repository once it could speak for itself. The citations
+are left in place because removing them would edit the record; the files are in git history.
+
+[`../README.md`](../README.md) is the current state, and [`README.md`](README.md) indexes the
+deep dives.
 
 ---
 

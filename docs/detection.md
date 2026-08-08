@@ -58,7 +58,9 @@ between "matched" and "dark", so widening it to absorb a *predictable* offset bu
 at the same rate it avoids false darks. So it is computed, from the product's own annotation and
 from AIS SOG/COG.
 
-**The sign was derived one way and measured the other way, and the measurement won.**
+**The sign was derived one way and measured the other way, and the measurement won.** The counts
+are over the 60 detections this scene produced *before* fragment merging — the experiment that
+settled the sign predates that fix, and merging changes the denominator, not which sign wins:
 
 | | <100 m | <200 m | <500 m | median |
 |---|---|---|---|---|
@@ -67,6 +69,10 @@ from AIS SOG/COG.
 | correction, sign **−1** (as measured) | **19** | **33** | **45** | **173 m** |
 
 ![azimuth displacement correction](evidence/azimuth_correction.png)
+
+The plot is the current run — 35 detections, after merging — so its percentages sit over a
+smaller denominator than the table above. The separation between the three curves is the point,
+and it is unchanged.
 
 The wrong sign is about as far wrong as the right sign is right — the signature of a real
 systematic offset being corrected backwards. The derivation had assumed the processor places a
@@ -116,6 +122,12 @@ Matched detections carry an AIS fix inside them and sit in open water. The unmat
 cluster on the coastal edge — with two genuine open-water exceptions, which is exactly the kind
 of thing an analyst should be handed.
 
+**This map is the one render that predates fragment merging**, and its own title says so:
+60 detections, 45 matched, 15 unmatched. The spatial pattern it is shown for — matched offshore,
+unmatched hugging the coast — is what merging does not change, but the counts on it are the old
+ones. `make dark-proof` regenerates it; until that has been run on a machine with the granule on
+disk, read the counts from the table above and the geometry from here.
+
 Every detection at native resolution, and the AOI in radar geometry with the land mask drawn on
 it, are in [`docs/evidence/`](evidence). `make dark-proof` regenerates all of it into
 `data/out/`; the committed copies are the snapshot these numbers come from.
@@ -131,7 +143,8 @@ risk. Running the same configuration unchanged over a Lisbon-AOI granule — dif
 | water sigma0 / NESZ | −29.1 / −29.4 dB | −26.5 / −26.5 dB |
 | land-masked | 51.6% | 33.0% |
 | binding criterion | CFAR | CFAR |
-| detections | 60 | 133 |
+| detections, before fragment merging | 60 | 133 |
+| **detections, after merging** | **35** | **71** |
 
 No parameter touched, and the [chips](evidence/pt_chips.png) are unambiguous vessels — most
 of them showing the vertical azimuth smear of a moving target. That smear is also why lengths
@@ -163,13 +176,13 @@ transponder.
 
 This comparison is what first caught the detector counting one vessel several times. Before the
 merge step it reported 133 detections here, and 61% of the 84 GFW did not share sat within 200 m
-of one we had both found — fragments of the same hull, not extra vessels. With merging on,
+of one we *had* both found — fragments of the same hull, not extra vessels. With merging on,
 agreement is unchanged at 49 and the residue drops to 22, of which **none** is within 200 m of
 an agreed detection: median distance to the nearest, 26 km. What is left is genuinely isolated —
 extra sensitivity or extra false alarms, not double counting.
 
-Denmark settled the question properly afterwards, and cheaper: 45 matched detections there
-resolved to **18 distinct MMSIs**, and clustering at 100–300 m produced zero groups containing
+Denmark settled the question properly afterwards, and cheaper: the 45 pre-merge matched
+detections there resolved to **18 distinct MMSIs**, and clustering at 100–300 m produced zero groups containing
 more than one vessel. The ground truth was on the bench the whole time.
 
 Two detectors agreeing is weaker evidence than the AIS validation banked over Denmark — it says
