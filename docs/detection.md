@@ -120,27 +120,27 @@ pipeline rather than a debugging afterthought.
 
 ![detections vs AIS](evidence/map_result.png)
 
-Matched detections carry an AIS fix inside them and sit in open water. The unmatched ones
-cluster on the coastal edge — with two genuine open-water exceptions, which is exactly the kind
-of thing an analyst should be handed.
+Matched detections carry an AIS fix inside them and sit in open water. The unmatched ones cluster
+on the coastal edge — with three genuine open-water exceptions, `det_00026`, `det_00022` and
+`det_00027`, which is exactly the kind of thing an analyst should be handed.
 
-**This map predates fragment merging, and nothing currently regenerates it.** Its own title says
-60 detections, 45 matched, 15 unmatched — the pre-merge counts. The spatial pattern it is shown
-for, matched offshore and unmatched hugging the coast, is what merging does not change; the
-numbers printed on it are stale. Read the counts from the table above and the geometry from here.
+**This figure used to be the one piece of evidence nothing could regenerate.** `map_view()`
+existed in [`spatial/render.py`](../src/nightglass/spatial/render.py) and no code path called it:
+`render` runs the detector and has no AIS in hand, `dark` has the join but not the pixels, so the
+committed map sat at its pre-merge counts — 60 detections, 45 matched, 15 unmatched — while every
+number beside it had moved on. The `render` subcommand's help even advertised a map it never wrote.
 
-The reason it is stale is worth stating rather than hiding: `render.map_view()` still exists in
-[`spatial/render.py`](../src/nightglass/spatial/render.py), but `nightglass-spatial render` no
-longer calls it — it writes `chips_top`, `chips_spread` and `overview` only, because `render`
-runs the detector and has no AIS in hand, and the AIS join lives in `dark`. So the subcommand's
-own help ("chips, overview and map") promises a map it does not produce, and no `make` target
-regenerates this file. Wiring the map render into `dark`, where the matches actually are, is the
-fix; it is on the [three-weeks list](roadmap.md).
+It is drawn by `validate-shift --map` now, and `make dark-proof` passes that flag. That command is
+the only place holding all four things at once — the pixels, the detections, the AIS interpolated
+onto the acquisition instant, and the azimuth-corrected positions — so the map and the table above
+come from one measurement rather than two opinions. The matched/dark split it draws was checked
+against the SQL join detection by detection, not just on the totals: the same fourteen ids, at the
+same positions.
 
-The rest of the evidence *is* reproducible: `make dark-proof` writes `chips_top.png`,
-`chips_spread.png` and `overview.png` into `data/out/`, plus `azimuth_correction.png` and
-`length_agreement.png`, and the committed copies in [`docs/evidence/`](evidence) are byte-identical
-to what that run produces.
+All of it is reproducible: `make dark-proof` writes `chips_top.png`, `chips_spread.png`,
+`overview.png`, `azimuth_correction.png`, `length_agreement.png` and `map_result.png` into
+`data/out/`, and the committed copies in [`docs/evidence/`](evidence) are byte-identical to what
+that run produces.
 
 ### It generalises
 

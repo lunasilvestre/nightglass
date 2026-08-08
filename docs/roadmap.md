@@ -5,11 +5,6 @@
 Each of these is a named gap in [limitations](limitations.md) rather than a feature wish.
 
 - Real CFAR with sea-state adaptation, rather than one threshold per block
-- **Put the map render back.** `render.map_view()` — detections and AIS over the SAR backdrop,
-  the picture in [detection.md](detection.md) — is still in `spatial/render.py` and nothing calls
-  it. `nightglass-spatial render` runs the detector and has no AIS in hand, so the call belongs in
-  `dark`, where the matches are. Until then `docs/evidence/map_result.png` cannot be regenerated
-  and the `render` subcommand's help promises a map it does not write.
 - **Fix coastal precision properly.** The shoreline buffer is a blunt instrument that trades
   real vessels for clutter. A hydrographic layer with harbour limits, aids to navigation and
   fixed-structure catalogues (wind farms, platforms) would let near-shore detections be

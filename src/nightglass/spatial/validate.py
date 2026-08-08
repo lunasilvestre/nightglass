@@ -142,6 +142,8 @@ def validate_azimuth_shift(
     coastline: Coastline | None = None,
     config: DetectorConfig | None = None,
     out_dir: Path | None = None,
+    map_path: Path | None = None,
+    radius_m: float = 500.0,
 ) -> ShiftReport:
     product = SafeProduct(granule)
     acq = product.acquisition
@@ -242,6 +244,53 @@ def validate_azimuth_shift(
         from nightglass.spatial.plots import plot_validation
 
         plot_validation(report, det_pairs=pairs, out_dir=out_dir)
+
+    # The map belongs here and nowhere else. `render` runs the detector and has
+    # no AIS in hand; `dark` has the join but not the granule. This function is
+    # the only place holding all four at once — the pixels, the detections, the
+    # AIS interpolated onto the acquisition instant, and the azimuth-corrected
+    # positions — so a map drawn from anywhere else would be drawing a second
+    # opinion. Off by default: passing no path changes nothing.
+    if map_path is not None:
+        from nightglass.spatial import render as R
+
+        ap_lon, ap_lat = apparent_position(
+            alon, alat, sog, cog, inc, rv,
+            acq.range_bearing_deg, acq.azimuth_bearing_deg, sign=report.best_sign,
+        )
+        dark_ids = {
+            detections[i].id for i in range(len(detections)) if v["nearest"][i] >= radius_m
+        }
+        matched = len(detections) - len(dark_ids)
+        # Frame what is actually drawn, which is neither the AOI nor the granule
+        # footprint. A descending Sentinel-1 swath crosses a rectangular AOI as a
+        # parallelogram: the AOI extent leaves most of the canvas empty, and the
+        # footprint's own bounding box reaches south past the AOI's longitude
+        # range and leaves a dead band under the imagery. The detections and the
+        # AIS are the subject, so they set the frame — this figure exists to be
+        # judged by eye, and a detection too small to look at is not evidence.
+        pad = 0.03
+        zoom = BBox(
+            max(bbox.min_lon, float(min(dlon.min(), alon.min())) - pad),
+            max(bbox.min_lat, float(min(dlat.min(), alat.min())) - pad),
+            min(bbox.max_lon, float(max(dlon.max(), alon.max())) + pad),
+            min(bbox.max_lat, float(max(dlat.max(), alat.max())) + pad),
+        )
+        R.map_view(
+            product,
+            bbox,
+            detections,
+            map_path,
+            ais=list(zip(alon.tolist(), alat.tolist())),
+            ais_apparent=list(zip(ap_lon.tolist(), ap_lat.tolist())),
+            dark_ids=dark_ids,
+            zoom=zoom,
+            pol=(config or DetectorConfig()).polarization,
+            title=(
+                f"{acq.scene_id.split('_')[0]} {acq.acquisition_time:%Y-%m-%d %H:%M} UTC — "
+                f"{len(detections)} detections: {matched} matched to AIS, {len(dark_ids)} unmatched"
+            ),
+        )
     return report
 
 

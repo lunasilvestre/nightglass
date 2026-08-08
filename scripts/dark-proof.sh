@@ -62,7 +62,7 @@ rule "5. One SQL query, detections with no AIS correspondence"
 run dark "$SCENE_ID" --limit 15
 
 rule "6. The correction that makes the match work, measured not asserted"
-run validate-shift "$SCENE" "$AIS"
+run validate-shift "$SCENE" "$AIS" --map /app/data/out/map_result.png
 
 rule "7. The evidence — look at the pixels, not the table"
 run render "$SCENE"

@@ -456,6 +456,7 @@ def cmd_validate_shift(args: argparse.Namespace) -> int:
         window_min=args.window_min,
         coastline=_coastline(args, aoi_name),
         out_dir=Path(args.out) if args.out else None,
+        map_path=Path(args.map) if args.map else None,
     )
     _rule("azimuth displacement — measured, not argued")
     print(report.render())
@@ -639,9 +640,14 @@ def main(argv: list[str] | None = None) -> int:
     _add_coastline_args(v)
     v.add_argument("--window-min", type=float, default=11.0)
     v.add_argument("--out", default="/app/data/out")
+    v.add_argument(
+        "--map",
+        help="also render detections and AIS over the SAR backdrop to this path. "
+             "This is the only command holding pixels, detections and AIS at once.",
+    )
     v.set_defaults(func=cmd_validate_shift)
 
-    r = sub.add_parser("render", help="Chips, overview and map — the evidence.")
+    r = sub.add_parser("render", help="Chips and scene overview — the evidence.")
     r.add_argument("granule")
     _add_aoi_args(r)
     _add_coastline_args(r)
