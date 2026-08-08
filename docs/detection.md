@@ -58,21 +58,23 @@ between "matched" and "dark", so widening it to absorb a *predictable* offset bu
 at the same rate it avoids false darks. So it is computed, from the product's own annotation and
 from AIS SOG/COG.
 
-**The sign was derived one way and measured the other way, and the measurement won.** The counts
-are over the 60 detections this scene produced *before* fragment merging — the experiment that
-settled the sign predates that fix, and merging changes the denominator, not which sign wins:
+**The sign was derived one way and measured the other way, and the measurement won.** Counts are
+detections whose nearest AIS vessel falls inside each radius, over the 35 the scene produces
+today:
 
-| | <100 m | <200 m | <500 m | median |
-|---|---|---|---|---|
-| interpolated, no correction | 8 | 17 | 43 | 330 m |
-| correction, sign **+1** (as derived) | 0 | 3 | 23 | 630 m |
-| correction, sign **−1** (as measured) | **19** | **33** | **45** | **173 m** |
+| | <100 m | <200 m | <300 m | <500 m | median |
+|---|---|---|---|---|---|
+| interpolated, no correction | 5 | 8 | 12 | 21 | 376 m |
+| correction, sign **+1** (as derived) | 0 | 2 | 4 | 12 | 760 m |
+| correction, sign **−1** (as measured) | **9** | **14** | **19** | **21** | **246 m** |
 
 ![azimuth displacement correction](evidence/azimuth_correction.png)
 
-The plot is the current run — 35 detections, after merging — so its percentages sit over a
-smaller denominator than the table above. The separation between the three curves is the point,
-and it is unchanged.
+Read the `<500 m` column honestly: the correction and no correction tie at 21, because 500 m is
+wide enough to swallow the offset. Everything tighter is where it shows — the correction nearly
+doubles the sub-100 m count and takes the median from 376 m to 246 m — and that is the column
+that matters, because a match at 450 m and a match at 90 m are not equally believable even though
+the matcher scores both.
 
 The wrong sign is about as far wrong as the right sign is right — the signature of a real
 systematic offset being corrected backwards. The derivation had assumed the processor places a
@@ -122,15 +124,23 @@ Matched detections carry an AIS fix inside them and sit in open water. The unmat
 cluster on the coastal edge — with two genuine open-water exceptions, which is exactly the kind
 of thing an analyst should be handed.
 
-**This map is the one render that predates fragment merging**, and its own title says so:
-60 detections, 45 matched, 15 unmatched. The spatial pattern it is shown for — matched offshore,
-unmatched hugging the coast — is what merging does not change, but the counts on it are the old
-ones. `make dark-proof` regenerates it; until that has been run on a machine with the granule on
-disk, read the counts from the table above and the geometry from here.
+**This map predates fragment merging, and nothing currently regenerates it.** Its own title says
+60 detections, 45 matched, 15 unmatched — the pre-merge counts. The spatial pattern it is shown
+for, matched offshore and unmatched hugging the coast, is what merging does not change; the
+numbers printed on it are stale. Read the counts from the table above and the geometry from here.
 
-Every detection at native resolution, and the AOI in radar geometry with the land mask drawn on
-it, are in [`docs/evidence/`](evidence). `make dark-proof` regenerates all of it into
-`data/out/`; the committed copies are the snapshot these numbers come from.
+The reason it is stale is worth stating rather than hiding: `render.map_view()` still exists in
+[`spatial/render.py`](../src/nightglass/spatial/render.py), but `nightglass-spatial render` no
+longer calls it — it writes `chips_top`, `chips_spread` and `overview` only, because `render`
+runs the detector and has no AIS in hand, and the AIS join lives in `dark`. So the subcommand's
+own help ("chips, overview and map") promises a map it does not produce, and no `make` target
+regenerates this file. Wiring the map render into `dark`, where the matches actually are, is the
+fix; it is on the [three-weeks list](roadmap.md).
+
+The rest of the evidence *is* reproducible: `make dark-proof` writes `chips_top.png`,
+`chips_spread.png` and `overview.png` into `data/out/`, plus `azimuth_correction.png` and
+`length_agreement.png`, and the committed copies in [`docs/evidence/`](evidence) are byte-identical
+to what that run produces.
 
 ### It generalises
 

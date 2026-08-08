@@ -47,7 +47,15 @@ RUN pip install --no-cache-dir -e ".[services,spatial,viz,agent]"
 
 COPY src/ src/
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+# 0755 absolutely, not `chmod +x`. COPY preserves the builder's mode, and `+x`
+# only adds execute — so on a host with umask 077 the file arrives 0700 and
+# leaves as 0711, root-owned. The service then drops to uid 10001, which has
+# execute without read, and an interpreter has to *read* a script: the container
+# restart-loops on `entrypoint.sh: Permission denied` with exit 126 while every
+# other service reports healthy. `/app` is fine because line 55 chowns it; this
+# one file lives outside it. An image that only builds correctly under someone's
+# umask is not "clone and make up".
+RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 # Drop privileges. Nothing here needs root, and an enclave service running as
 # root is the kind of detail that gets asked about.
