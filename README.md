@@ -4,7 +4,7 @@
 them against AIS, and drafts a cited intelligence report — with no route to the internet.
 
 The chat model, the embedding model and the vector store all run inside the enclave; nothing
-calls out. Deliberately shaped as the open-source shadow of ICEYE Ocean Vision Detect.
+calls out.
 
 ![How NIGHTGLASS works — six steps from radar echo to a cited, human-approved report](docs/how-it-works.svg)
 
