@@ -5,4 +5,4 @@ intelligence document corpus, exposed as MCP tools, running with no route to
 the internet.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.1"

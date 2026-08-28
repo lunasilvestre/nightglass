@@ -9,7 +9,7 @@ type: application
 # The chart's version, and the application's. They move independently: the
 # chart can gain a resource limit without the application changing at all.
 version: 0.1.0
-appVersion: "0.1.0"
+appVersion: "0.3.1"
 
 keywords: [sar, air-gapped, vessel-detection]
 home: https://github.com/lunasilvestre/nightglass

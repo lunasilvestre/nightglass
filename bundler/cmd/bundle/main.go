@@ -32,7 +32,7 @@ import (
 )
 
 // Version travels into the manifest, so a bundle says which tool wrote it.
-const Version = "0.1.0"
+const Version = "0.3.1"
 
 // defaultImages is the stack, in load order.
 //

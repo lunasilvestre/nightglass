@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nightglass"
-version = "0.1.0"
+version = "0.3.1"
 description = "Air-gapped SAR intelligence assistant — dark-vessel detection and reporting"
 readme = "README.md"
 requires-python = ">=3.12"
