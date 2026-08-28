@@ -379,7 +379,7 @@ restore-bundle: bundler  ## verify a bundle, then load it into docker and this c
 	  --install --repo .
 
 .PHONY: bundle-proof
-bundle-proof:  ## the bundle end to end: create, verify, four refusals, restore into a clean daemon
+bundle-proof: bundler  ## the bundle end to end: create, verify, four refusals, restore into a clean daemon
 	@scripts/bundle-proof.sh
 
 ##@ Kubernetes  (M7)

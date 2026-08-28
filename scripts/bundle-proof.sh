@@ -33,7 +33,13 @@ BOLD=$'\033[1m'; DIM=$'\033[2m'; RESET=$'\033[0m'; GREEN=$'\033[32m'; RED=$'\033
 NGB=bundler/bin/nightglass-bundle
 VOL=nightglass_bundleproof_models
 DIND=nightglass-bundle-proof-dind
-TMP=$(mktemp -d)
+# mktemp -d honours $TMPDIR, and on a great many hosts /tmp is a tmpfs -- i.e.
+# RAM. This proof streams several GB through here (docker save of the stack
+# images, the staged archive, the copies the truncation and flipped-byte cases
+# need) even though the artifact it leaves behind is ~80 MB, so on a small tmpfs
+# it dies of ENOSPC and looks like a failed proof rather than a full disk.
+# Default to a disk-backed path; NIGHTGLASS_PROOF_TMPDIR overrides.
+TMP=$(mktemp -d "${NIGHTGLASS_PROOF_TMPDIR:-/var/tmp}/nightglass-bundle-proof-XXXXXX")
 
 cleanup() {
   rm -rf "$TMP"
