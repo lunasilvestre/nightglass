@@ -85,18 +85,35 @@ elif command -v nvidia-smi >/dev/null 2>&1; then
                 note "only ${free_mib} MiB of ${total_mib} MiB VRAM free — containers will
       start, but loading the 14B model needs ~16000 MiB"
             fi
-            if systemctl is-active --quiet ollama 2>/dev/null; then
-                printf '      The host ollama service is running and pinning the card\n'
-                printf '      (OLLAMA_KEEP_ALIVE=-1 holds ~15 GB resident).\n'
-                printf '      \033[1msudo systemctl stop ollama\033[0m   frees it.\n'
-                printf '      It is a dev convenience; the enclave runs its own — see docs/NOTES.md.\n'
-            fi
         else
             ok "${free_mib} MiB of ${total_mib} MiB VRAM free"
         fi
     fi
 else
     note "nvidia-smi not found — cannot check VRAM"
+fi
+
+# The host ollama service competes for the same card, and this check used to sit
+# inside the branch above -- i.e. it only spoke up once free VRAM had ALREADY
+# fallen below the floor. That is too late to be a preflight. An idle host daemon
+# holds nothing, so the card reports plenty free and this passes green, right up
+# until something touches :11434 mid-run: OLLAMA_KEEP_ALIVE=-1 then pins ~15 GB
+# for good, on top of the ~12.7 GB the enclave's own ollama holds once both
+# models are resident. 12.7 + 15 does not fit in 24. Report it whenever the
+# service is up, and say which of the two situations this is.
+if systemctl is-active --quiet ollama 2>/dev/null; then
+    host_resident=$(ollama ps 2>/dev/null | tail -n +2 | grep -c '[^[:space:]]' || true)
+    if [[ "${host_resident:-0}" != "0" ]]; then
+        note "the host ollama service is running and holding a model resident"
+        printf '      It is pinning the card the enclave needs.\n'
+    else
+        note "the host ollama service is running (idle)"
+        printf '      Nothing is resident yet, so the VRAM figure above looks fine.\n'
+        printf '      But OLLAMA_KEEP_ALIVE=-1 means the first request to :11434\n'
+        printf '      pins ~15 GB for good, and the enclave needs ~12.7 GB of its own.\n'
+    fi
+    printf '      \033[1msudo systemctl stop ollama\033[0m   frees it.\n'
+    printf '      It is a dev convenience; the enclave runs its own — see docs/NOTES.md.\n'
 fi
 
 # --- config ----------------------------------------------------------------
