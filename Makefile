@@ -30,6 +30,24 @@ preflight:  ## check the host can actually run the enclave
 
 .PHONY: up
 up: preflight  ## build and start the enclave, wait for healthy
+	@# Create the bind-mount sources before compose can. `data/` ships with only
+	@# .gitkeep and sources.yaml -- .gitignore excludes the rest -- so on a fresh
+	@# clone none of these paths exist, and the daemon creates a missing bind-mount
+	@# source itself, as root. The fetchers then correctly drop to
+	@# $(HOST_UID):$(HOST_GID) and cannot write into a root-owned directory, so
+	@# every `make fetch-*` fails on a permission error. The `mkdir -p` in each
+	@# fetch target cannot save it: `up` runs first in the documented order, so by
+	@# then the directory exists and mkdir is a no-op. Creating them here, as the
+	@# invoking user, is what makes a fresh clone reproduce the demo.
+	@mkdir -p data/corpus data/raw/sar data/raw/ais data/interim \
+	          data/coastline data/gfw
+	@# data/out is the exception: it is the only read-write mount in the enclave,
+	@# and the api and mcp containers write renders into it as their own uid
+	@# (10001) while every fetcher writes as $(HOST_UID). No single owner
+	@# satisfies both, so this one directory is world-writable. Without it
+	@# `make dark-proof` gets all the way to rendering the evidence and then dies
+	@# on PermissionError writing data/out/azimuth_correction.png.
+	@mkdir -p data/out && chmod 0777 data/out
 	$(COMPOSE) up -d --build --wait
 	@echo
 	@$(COMPOSE) ps
