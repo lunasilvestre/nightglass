@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -657,7 +658,25 @@ def main(argv: list[str] | None = None) -> int:
     r.set_defaults(func=cmd_render)
 
     args = ap.parse_args(argv)
-    return int(args.func(args) or 0)
+    try:
+        return int(args.func(args) or 0)
+    except RuntimeError as exc:
+        # Every failure this package raises deliberately is a RuntimeError
+        # subclass -- ArchiveError, GfwError, CoastlineError, SafeError,
+        # ConfigError -- and each one's message is written for an operator: the
+        # credential that is missing, the EULA that has not been accepted, the
+        # fetch that has to run first. A traceback printed above that message
+        # buries the only part the reader needs and makes a handled condition
+        # look like a crash. `nightglass-corpus` already prints its FetchError
+        # clean; this is the same contract, applied at the boundary rather than
+        # in ten command functions -- this CLI imports its domain modules lazily
+        # (rasterio, geopandas, pyproj are not cheap) and so cannot name the
+        # exception types up here without paying for them on every invocation.
+        # NIGHTGLASS_TRACEBACK=1 puts the stack back when debugging.
+        if os.environ.get("NIGHTGLASS_TRACEBACK"):
+            raise
+        print(f"\nerror: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover

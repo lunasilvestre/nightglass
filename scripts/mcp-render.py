@@ -55,6 +55,23 @@ def render_status(sc):
 
 
 def render_correlation(sc):
+    # `correlate` returns no `matches` key at all when it had nothing to
+    # correlate -- no granules on disk, or no AIS for the window. Reaching into
+    # it regardless turns a missing prerequisite into a KeyError traceback out
+    # of the rendering layer, which says nothing about what is actually wrong.
+    # dark-proof handles the same condition by naming the fetch that is missing;
+    # do the same here rather than crash.
+    if "matches" not in sc:
+        print(
+            "  correlate           no correlation to render.\n"
+            "                      `correlate` returned no matches, which means the\n"
+            "                      inputs are not on disk yet. Run:\n"
+            "                        make fetch-granules   (needs Earthdata)\n"
+            "                        make fetch-ais\n"
+            "                        make fetch-coastline\n"
+            "                      then make dark-proof before this one."
+        )
+        return
     dark = [x for x in sc["matches"] if x["status"] == "dark"]
     print(
         f"  correlate           {len(sc['scenes'])} scene(s) found, "
