@@ -112,7 +112,7 @@ loudly if it cannot.
 | `dark-proof` | 35 detections, 21 matched at a median 104 m, 14 with no AIS correspondence | [detection.md](docs/detection.md) |
 | `tool-proof` | six typed tools over HTTP *and* MCP; the local 14B chains three unaided, and Claude Code drives the same six from outside the enclave over a pipe | [tools.md](docs/tools.md) |
 | `agent-proof` | the drafting container exits at the human gate; a different one resumes from persisted state | [agent.md](docs/agent.md) |
-| `bundle-proof` | 18 GB across the gap behind a 3.4 MB static Go binary that refuses eight ways before it will restore | [bundle.md](docs/bundle.md) |
+| `bundle-proof` | the whole round trip on a 100 MB fixture — create, verify on a file and on a pipe, four of the eight refusals, and a restore into an empty daemon. The 18 GB bundle itself is `make bundle`; none of this is a property of the size | [bundle.md](docs/bundle.md) |
 | `k8s-proof` | the same boundary as a default-deny NetworkPolicy — proved against a negative control, because a cluster with no route out would also report "blocked" | [kubernetes.md](docs/kubernetes.md) |
 
 ---
@@ -133,7 +133,9 @@ loudly if it cannot.
 
 **Attribution.** Contains data from the Danish Maritime Authority that is used in accordance with
 the conditions for the use of Danish public data. Sentinel-1 imagery © ESA, via ASF. Global
-Fishing Watch detections are CC BY-NC 4.0. Corpus documents carry their own terms —
-[the full table](docs/data-sources.md).
+Fishing Watch detections are CC BY-NC 4.0. © European Union, Copernicus Emergency Management
+Service. © European Union, 1998–2026 (EUR-Lex) — only European Union legislation printed in the
+paper edition of the Official Journal is deemed authentic. Corpus documents carry their own
+terms — [the full table](docs/data-sources.md).
 
 Licence: Apache-2.0.
