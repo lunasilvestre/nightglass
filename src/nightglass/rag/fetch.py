@@ -200,6 +200,20 @@ def fetch_corpus(
         print(f"{len(failures)} failure(s):")
         for f in failures:
             print(f"  - {f}")
+        # A partial corpus is not a fetched corpus, and saying so is the whole
+        # point of a provisioning step. Everything that DID arrive is already on
+        # disk and recorded in MANIFEST.json above, and a re-run is a no-op for
+        # those, so failing here costs nothing and a retry re-attempts only what
+        # is missing. Exiting 0 here is how `make ingest` came to report 52
+        # documents and 953 chunks -- against the 60 and 1,814 in docs/rag.md --
+        # under a heading that said "indexed", with nothing to tell the reader
+        # a third of the corpus never arrived.
+        raise FetchError(
+            f"{len(failures)} of {len(entries) + len(failures)} document(s) did not arrive; "
+            "the corpus on disk is incomplete. The failures are listed above and in "
+            "MANIFEST.json. Re-run `make fetch-corpus` to retry just those -- everything "
+            "already fetched is cached and will not be downloaded again."
+        )
     return entries
 
 
