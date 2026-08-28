@@ -81,6 +81,17 @@ Stated before being asked, because each one was tested rather than assumed.
   chunk which does not actually say what the claim says would survive verification. Guarding
   that needs an entailment check against the cited span, which is on the
   [three-weeks list](roadmap.md).
+- **The corpus is a manifest of URLs, so it is only as reproducible as its publishers — and one
+  of them has stopped answering.** Nothing real is vendored, for
+  [licence reasons](../corpus/README.md), which means every fetch depends on four publishers
+  still serving. EUR-Lex currently returns `202` with an empty body for every CELEX URL in the
+  manifest — the PDF endpoint and the HTML page alike, unchanged by a browser User-Agent — so
+  the eight EU legal instruments do not arrive, and two of the three documents this corpus calls
+  load-bearing go with them. A corpus fetched today is 52 documents and 953 chunks, not 60 and
+  1,814. `make fetch-corpus` exits non-zero rather than reporting a partial corpus as success,
+  and a re-run retries only what is missing. Stated for the same reason the DMA rolling window
+  is: a manifest invites the assumption that everything in it is retrievable today, and one
+  quarter of this one is not.
 
 ## The bundle, and the second boundary
 

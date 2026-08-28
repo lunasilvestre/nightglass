@@ -5,6 +5,12 @@
 60 documents, 1,814 chunks, embedded locally with bge-m3 and stored in Qdrant. Reproduce with
 `make rag-proof`.
 
+> **Those are the manifest's numbers, and EUR-Lex is not currently answering.** The eight EU
+> legal instruments return `202` with an empty body, so a corpus fetched today indexes 52
+> documents and 953 chunks rather than 60 and 1,814. `make fetch-corpus` fails rather than
+> reporting that as a success, and re-running retries only the missing entries — see
+> [limitations](limitations.md#the-document-layer).
+
 The argument for the whole document layer is one comparison. **Same model, same question, same
 machine — the only difference is whether retrieval is on.**
 
