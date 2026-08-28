@@ -13,6 +13,7 @@ make fetch-ais            # once, 890 MB   │
 make fetch-coastline      # once, 149 MB   │ (149 MB in, 713 KB kept)
 make fetch-gfw            # once, ~70 detections ┘ the cross-check layer
 make ingest               # chunk + embed the corpus into Qdrant (~1 min, offline)
+make scenes               # catalogue the granules on disk as STAC items (offline)
 make air-gap-proof        # no egress, inference works anyway
 make rag-proof            # ungrounded vs grounded, and the refusal path
 make dark-proof           # detector, AIS, the space-time join, and the renders

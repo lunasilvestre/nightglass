@@ -215,7 +215,12 @@ migrate:  ## create/refresh the M3 PostGIS schema (add DROP=1 to start clean)
 	$(SPATIAL) migrate $(if $(DROP),--drop,)
 
 .PHONY: scenes
-scenes:  ## catalogue every granule on disk as a STAC item
+# `migrate` first, and not as a convenience: cataloguing a granule is an INSERT
+# into stac.scenes, so on a fresh enclave this fails with UndefinedTable. Every
+# other caller of `scenes` -- dark-proof, the demo -- happens to run `migrate`
+# first and so never saw it; a reader following the quickstart in order does.
+# migrate is idempotent unless DROP=1, so depending on it costs nothing.
+scenes: migrate  ## catalogue every granule on disk as a STAC item
 	$(SPATIAL) scenes
 
 .PHONY: detect
