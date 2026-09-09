@@ -49,7 +49,11 @@ Each group in `sources.yaml` carries `redistributable: true|false`.
   document onto the machine that reads it is not redistribution. Committing it
   to a public git repository is.
 - **EUR-Lex and Copernicus — `true`.** Commission Decision 2011/833/EU and the
-  Copernicus data policy both permit reuse with attribution.
+  Copernicus data policy both permit reuse with attribution. The EU group is
+  fetched from the Publications Office's Cellar resource-resolution endpoint
+  rather than eur-lex.europa.eu directly (eur-lex fronts its own CELEX PDFs
+  with a bot challenge since 2026-09); the bytes are the same publisher's, and
+  `source_base` still points at the eur-lex human page for citation.
 
 The flag is a field rather than a comment so the fetcher can enforce it: an
 entry marked `false` may only be written to a gitignored path, and

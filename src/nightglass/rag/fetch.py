@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -87,6 +87,7 @@ class Source:
     licence: str | None
     redistributable: bool
     aoi: tuple[str, ...] = ()
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 def load_sources(path: Path) -> list[Source]:
@@ -126,6 +127,7 @@ def load_sources(path: Path) -> list[Source]:
                     licence=_clean(group.get("licence")),
                     redistributable=bool(group.get("redistributable", True)),
                     aoi=tuple(str(a) for a in (item.get("aoi") or group.get("aoi") or [])),
+                    headers={str(k): str(v) for k, v in (group.get("headers") or {}).items()},
                 )
             )
     return sources
@@ -228,7 +230,7 @@ def _fetch_one(
     else:
         if not src.redistributable:
             _assert_gitignored(raw_dir.parent, src)
-        r = client.get(src.fetch_url)
+        r = client.get(src.fetch_url, headers=src.headers or None)
         r.raise_for_status()
         body = r.content
         if not body:

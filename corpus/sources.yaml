@@ -223,8 +223,20 @@ groups:
       2011/833/EU provided the source is acknowledged. Only European Union
       legislation printed in the paper Official Journal is deemed authentic.
     redistributable: true
-    fetch_base: "https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:"
+    # eur-lex.europa.eu has fronted its CELEX PDF endpoint with a bot challenge
+    # since 2026-09 (HTTP 202 + x-amzn-waf-action: challenge, every request).
+    # The Publications Office's own Cellar repository serves the identical
+    # bytes (verified: sha256-identical to the 2026-08-03 eur-lex copies) at a
+    # resource-resolution endpoint that answers content-negotiation requests
+    # rather than a browser challenge. Cellar 400s without a language, and
+    # three of these eight CELEX numbers exist only as PDF/A-1a, hence both
+    # headers. `source_base` still points at the eur-lex human page, because
+    # that is what an analyst following a citation would actually open.
+    fetch_base: "https://publications.europa.eu/resource/celex/"
     source_base: "https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX:"
+    headers:
+      Accept: "application/pdf, application/pdf;type=pdfa1a"
+      Accept-Language: "en"
     items:
       - doc_id: eu-2002-59-vessel-traffic-monitoring
         title: >-
