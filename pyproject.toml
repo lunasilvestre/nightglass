@@ -58,6 +58,11 @@ agent = [             # M5
 dev = [
   "pytest>=8.0",
   "ruff>=0.6",
+  # Coverage is a CI and host-venv concern only. `docker/Dockerfile` installs
+  # `pytest ruff` directly rather than this extra, so `make test` inside the
+  # image runs the same suite with no coverage plugin and nothing added here
+  # reaches the enclave.
+  "pytest-cov>=5.0",
 ]
 
 [project.scripts]
@@ -91,3 +96,23 @@ extend-immutable-calls = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# No --cov here and no -W error. `make test` runs this suite inside
+# nightglass/app:test with --network none, where pytest-cov is absent; and
+# starlette's TestClient emits a DeprecationWarning that is not this project's
+# to fix. CI adds --cov on the command line.
+markers = [
+  "postgis: needs a PostGIS server. Skipped unless NIGHTGLASS_TEST_POSTGIS is set; see docs/testing.md.",
+]
+
+[tool.coverage.run]
+source = ["nightglass"]
+branch = false
+
+[tool.coverage.report]
+# The uncovered remainder is enumerated in docs/testing.md, with the proof that
+# answers each part. `# pragma: no cover` is used only on __main__ guards.
+show_missing = false
+exclude_also = [
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]

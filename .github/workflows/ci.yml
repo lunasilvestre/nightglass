@@ -1,0 +1,219 @@
+# NIGHTGLASS CI.
+#
+# What this file is for, and what it deliberately is not: it runs the one proof
+# that needs nothing but a runner -- `make bundle-proof` -- and it runs the test
+# suite against a real PostGIS. Of the other six `make *-proof` targets,
+# `k8s-proof` would stream 2.33 GB of images into a privileged k3s on every push
+# and is not worth that, and the remaining five need a 24 GB GPU, a 1.0 GB
+# Sentinel-1 granule and a licensed AIS day. All six run on a host that can
+# afford them, and their dated output is committed in docs/evidence/proofs.md
+# instead of being faked here. docs/testing.md says which is which.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+# One run per ref. A second push supersedes the first rather than queueing
+# behind it; bundle-proof is the expensive job and it is not worth doing twice.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install "ruff>=0.6"
+      # The same command `make lint` runs inside nightglass/app:test.
+      - run: ruff check src tests
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      # The same image the enclave runs. The database suite is skipped when
+      # NIGHTGLASS_TEST_POSTGIS is unset and FAILS when it is set and the
+      # server cannot be reached, so a service that never came up cannot pass
+      # as a suite that had nothing to say.
+      postgis:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: nightglass
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: nightglass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nightglass"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NIGHTGLASS_TEST_POSTGIS: "1"
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: nightglass
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: nightglass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # 3.13 is what docker/Dockerfile builds on, so the suite runs against
+          # the interpreter the enclave uses.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      # rag/extract.py shells out to pdftotext, which the `fetcher` image has
+      # and the enclave runtime deliberately does not. The PDF success-path test
+      # is skipped where it is absent, so installing it here keeps this run's
+      # coverage comparable with the host figure the gate below was measured at.
+      - name: poppler-utils, so host and CI cover the same code
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+      - run: pip install -e ".[services,spatial,viz,agent,dev]"
+
+      # (a) Prove the database suite ran. Its entire contribution to coverage is
+      # under two points — smaller than the gate's own margin — so the gate
+      # cannot tell a passing database suite from a silently skipped one. This
+      # step can: zero collected tests is pytest exit code 5, and a skip here
+      # means the environment above did not reach the fixture.
+      - name: the PostGIS suite must run, not skip
+        run: |
+          set -o pipefail
+          python -m pytest -m postgis -q | tee postgis.log
+          grep -qE '[0-9]+ passed' postgis.log
+          if grep -q 'skipped' postgis.log; then
+            echo "::error::the postgis suite skipped; NIGHTGLASS_TEST_POSTGIS or the service is wrong"
+            exit 1
+          fi
+
+      # (b) The whole suite, with the gate.
+      #
+      # measured 72.42 % on 2026-09-09 (host venv, 453 tests, the postgis suite
+      # running against a throwaway container). Gate = measured − 2, integer,
+      # not rounded up. Raise it only against a figure a run produced.
+      - name: the whole suite, with coverage
+        run: python -m pytest -q --cov=nightglass --cov-fail-under=70
+
+      - name: shields endpoint for the badge job
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          python - <<'PY'
+          import json, subprocess
+          subprocess.run(["python", "-m", "coverage", "json", "-o", "coverage-raw.json"], check=True)
+          pct = json.load(open("coverage-raw.json"))["totals"]["percent_covered"]
+          colour = "brightgreen" if pct >= 80 else "green" if pct >= 70 else "yellow"
+          json.dump(
+              {"schemaVersion": 1, "label": "coverage", "message": f"{pct:.0f}%", "color": colour},
+              open("coverage.json", "w"),
+          )
+          print(f"line coverage {pct:.2f} %", file=open("summary.txt", "w"))
+          PY
+          cat summary.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        with:
+          name: coverage-badge
+          path: coverage.json
+
+  go:
+    # `make bundler-test` is go vet + go test inside the build container, so the
+    # runner needs no Go — the same argument the host makes.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make bundler-test
+
+  helm:
+    # A lint, never a proof. Enforcement of the air gap in Kubernetes is
+    # `make k8s-proof`, which streams 2.33 GB of images into a privileged k3s
+    # container and stays on a host that can afford it. What runs here is the
+    # chart's own validation plus one assertion over the rendered policy, which
+    # is the regression that would otherwise reach a cluster unnoticed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make k8s-lint
+      - name: render the chart
+        run: make k8s-render NS=nightglass > rendered.yaml
+      - name: the rendered NetworkPolicy must still be default-deny egress
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 - <<'PY'
+          import sys, yaml
+
+          docs = [d for d in yaml.safe_load_all(open("rendered.yaml")) if d]
+          policies = [d for d in docs if d.get("kind") == "NetworkPolicy"]
+          egress = [p for p in policies if "Egress" in (p["spec"].get("policyTypes") or [])]
+          if not egress:
+              sys.exit("no NetworkPolicy with Egress in policyTypes: the enclave boundary is gone")
+
+          for p in egress:
+              spec = p["spec"]
+              name = p["metadata"]["name"]
+              if spec.get("podSelector") not in ({}, None):
+                  print(f"note: {name} does not select every pod")
+              for rule in spec.get("egress") or []:
+                  if not rule or not rule.get("to"):
+                      sys.exit(f"{name} has an egress rule with no `to`: that is allow-all")
+          print(f"ok: {len(egress)} default-deny egress policy/policies, no allow-all rule")
+          PY
+
+  bundle-proof:
+    # The one proof that needs nothing but a runner: it works on a ~100 MB
+    # fixture, and every property it demonstrates — the four refusals and the
+    # restore into an empty daemon — is a property of the format, not its size.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: space for the proof's scratch tree
+        run: |
+          mkdir -p "${{ runner.temp }}/bundle-proof"
+          df -h "${{ runner.temp }}"
+      - run: make bundler
+      - run: make bundle-proof
+        env:
+          NIGHTGLASS_PROOF_TMPDIR: ${{ runner.temp }}/bundle-proof
+
+  badge:
+    # main only, and the only job that may write. It pushes one shields-endpoint
+    # JSON to an orphan `badges` branch — no external service, no token beyond
+    # the one Actions already has, and nothing about the repository's history.
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-badge
+          path: badge
+      - name: publish coverage.json to the badges branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin badges --depth=1 || true
+          if git rev-parse --verify origin/badges >/dev/null 2>&1; then
+            git switch -c badges origin/badges
+          else
+            git switch --orphan badges
+          fi
+          git rm -rq --cached . 2>/dev/null || true
+          find . -mindepth 1 -maxdepth 1 ! -name .git ! -name badge -exec rm -rf {} +
+          mv badge/coverage.json coverage.json
+          rmdir badge
+          git add coverage.json
+          git commit -m "coverage badge for ${GITHUB_SHA::12}" || exit 0
+          git push origin badges

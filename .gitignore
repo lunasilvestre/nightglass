@@ -22,6 +22,8 @@ __pycache__/
 venv/
 .pytest_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 *.egg-info/
 
 # --- SAR / geo intermediates ----------------------------------------------
@@ -30,6 +32,9 @@ venv/
 *.tif
 *.tiff
 !docs/**/*.png
+# The committed test fixture: the Kattegat granule's manifest and VH annotation XML only
+# (no measurement TIFF), ~0.8 MB. See tests/fixtures/README.md.
+!tests/fixtures/*.annotation.zip
 
 # --- the offline bundle (M7) ----------------------------------------------
 # ~18 GB of images, model blobs, wheels and granules. Same rule as data/: the
