@@ -39,14 +39,28 @@ DIND=nightglass-bundle-proof-dind
 # need) even though the artifact it leaves behind is ~80 MB, so on a small tmpfs
 # it dies of ENOSPC and looks like a failed proof rather than a full disk.
 # Default to a disk-backed path; NIGHTGLASS_PROOF_TMPDIR overrides.
-TMP=$(mktemp -d "${NIGHTGLASS_PROOF_TMPDIR:-/var/tmp}/nightglass-bundle-proof-XXXXXX")
+TMPBASE="${NIGHTGLASS_PROOF_TMPDIR:-/var/tmp}"
+TMP=$(mktemp -d "$TMPBASE/nightglass-bundle-proof-XXXXXX")
 
 cleanup() {
   rm -rf "$TMP"
-  docker rm -f "$DIND"    >/dev/null 2>&1 || true
+  docker rm -f -v "$DIND" >/dev/null 2>&1 || true
   docker volume rm "$VOL" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+
+# This proof streams several GB through $TMP even though the artifact it
+# leaves behind is ~80 MB (see the comment above). Fail with a clear pointer
+# rather than partway through step 2 with ENOSPC: a reader who hits this on a
+# small /var/tmp needs to know NIGHTGLASS_PROOF_TMPDIR exists, not just that
+# something wrote a truncated file.
+MIN_FREE_KB=$((3 * 1024 * 1024))
+FREE_KB=$(df -Pk "$TMPBASE" | awk 'NR==2 {print $4}')
+if [ -n "$FREE_KB" ] && [ "$FREE_KB" -lt "$MIN_FREE_KB" ]; then
+  echo "Only $((FREE_KB / 1024)) MiB free on $TMPBASE; this proof needs about 3 GB." >&2
+  echo "Point it elsewhere: NIGHTGLASS_PROOF_TMPDIR=/path/with/space make bundle-proof" >&2
+  exit 1
+fi
 
 rule() { printf '\n%s%s%s\n%s\n' "$BOLD" "$1" "$RESET" "$(printf '%.0s─' $(seq 1 ${#1}))"; }
 

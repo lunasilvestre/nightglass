@@ -41,6 +41,54 @@ if ! docker compose ps --status running --services 2>/dev/null | grep -qx api; t
   exit 1
 fi
 
+# Preflight: the default question sends the model reaching for doc_search as
+# well as correlate ("what does that mean?"), so an unprovisioned enclave fails
+# a live 14B call with "the agent did not reach the gate" -- a message that
+# reads as a broken graph, not an unloaded database. Fail before that, and
+# name the one target that fixes it. Silent on success: one docker compose
+# exec carrying every check rather than four.
+docker compose exec -T api python3 - <<'PY'
+import sys
+
+from nightglass.config import settings
+
+
+def fail(target: str, why: str) -> None:
+    print(f"{why} Fix: make {target}", file=sys.stderr)
+    sys.exit(1)
+
+
+# A connection failure and an empty collection are different problems with
+# different fixes -- confusing them sends the reader to re-ingest a corpus
+# against a Qdrant that was never reachable in the first place. get_collection
+# raises on a missing collection as well as on a dead server, so the two are
+# told apart explicitly rather than by which exception happened to fire.
+from qdrant_client import QdrantClient
+
+client = QdrantClient(url=settings.qdrant_url)
+try:
+    client.get_collections()
+except Exception:
+    fail("up", f"qdrant is not answering at {settings.qdrant_url}.")
+if not client.collection_exists(settings.qdrant_collection):
+    fail("ingest", "the document corpus is not ingested.")
+if not client.get_collection(settings.qdrant_collection).points_count:
+    fail("ingest", "the document corpus is not ingested.")
+
+import psycopg
+
+with psycopg.connect(settings.postgres_dsn) as conn, conn.cursor() as cur:
+    cur.execute("SELECT count(*) FROM stac.scenes")
+    if cur.fetchone()[0] == 0:
+        fail("dark-proof", "no scene is catalogued in PostGIS.")
+    cur.execute("SELECT count(*) FROM detect.detections")
+    if cur.fetchone()[0] == 0:
+        fail("dark-proof", "no detections are recorded in PostGIS.")
+    cur.execute("SELECT count(*) FROM ais.positions")
+    if cur.fetchone()[0] == 0:
+        fail("dark-proof", "no AIS positions are loaded.")
+PY
+
 rule "0. The enclave still has no way out"
 echo "${DIM}\$ docker compose exec api curl -m 5 https://example.com${RESET}"
 docker compose exec -T api curl -m 5 https://example.com 2>&1 | head -2 || true

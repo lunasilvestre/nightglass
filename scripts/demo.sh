@@ -59,6 +59,62 @@ if ! docker compose ps --status running --services 2>/dev/null | grep -qx api; t
   exit 1
 fi
 
+# Preflight: fail before spending ~90 s on live model calls if a provisioning
+# step was skipped, and name the one target that fixes it. `docs/demo.cast` is
+# a recording of exactly this script, and `make check-demo` gates on it, so
+# this must print NOTHING on a healthy enclave -- one unplanned line here would
+# be a script that no longer matches its own recording. One `exec` rather than
+# four: corpus, PostGIS state and the GFW reference in a single interpreter.
+docker compose exec -T api python3 - <<'PY'
+import sys
+
+from nightglass.config import settings
+
+
+def fail(target: str, why: str) -> None:
+    print(f"{why} Fix: make {target}", file=sys.stderr)
+    sys.exit(1)
+
+
+# A connection failure and an empty collection are different problems with
+# different fixes -- confusing them sends the reader to re-ingest a corpus
+# against a Qdrant that was never reachable in the first place. get_collection
+# raises on a missing collection as well as on a dead server, so the two are
+# told apart explicitly rather than by which exception happened to fire.
+from qdrant_client import QdrantClient
+
+client = QdrantClient(url=settings.qdrant_url)
+try:
+    client.get_collections()
+except Exception:
+    fail("up", f"qdrant is not answering at {settings.qdrant_url}.")
+if not client.collection_exists(settings.qdrant_collection):
+    fail("ingest", "the document corpus is not ingested.")
+if not client.get_collection(settings.qdrant_collection).points_count:
+    fail("ingest", "the document corpus is not ingested.")
+
+import psycopg
+
+with psycopg.connect(settings.postgres_dsn) as conn, conn.cursor() as cur:
+    cur.execute("SELECT count(*) FROM stac.scenes")
+    if cur.fetchone()[0] == 0:
+        fail("dark-proof", "no scene is catalogued in PostGIS.")
+    cur.execute("SELECT count(*) FROM detect.detections")
+    if cur.fetchone()[0] == 0:
+        fail("dark-proof", "no detections are recorded in PostGIS.")
+    cur.execute("SELECT count(*) FROM ais.positions")
+    if cur.fetchone()[0] == 0:
+        fail("dark-proof", "no AIS positions are loaded.")
+
+# Derived from the same function that writes the file (spatial/gfw.py), not
+# spelled out separately -- so a change to either end cannot silently turn
+# this into an assertion about a file nothing writes.
+from nightglass.spatial.gfw import reference_path
+
+if not reference_path("/app/data/gfw", "lisbon").exists():
+    fail("fetch-gfw", "the GFW reference layer (Lisbon) is missing.")
+PY
+
 api()   { docker compose exec -T -e NIGHTGLASS_AOI="$1" api "${@:2}"; }
 agent() { docker compose --profile cli run --rm -T -e NIGHTGLASS_AOI="$1" agent "${@:2}" 2>/dev/null; }
 

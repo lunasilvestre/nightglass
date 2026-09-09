@@ -59,7 +59,17 @@ RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 # Drop privileges. Nothing here needs root, and an enclave service running as
 # root is the kind of detail that gets asked about.
+# chmod before chown: COPY preserves the builder's host mode bits, and a
+# checkout with a restrictive umask (or a single accidentally-600 file) bakes
+# an unreadable file into every stage built from here. The five provisioning
+# fetchers in docker-compose.yml all override `user:` to the host uid so their
+# writes land owned by the invoking user rather than by 10001 -- which means
+# they read this tree as someone other than its owner. `a+rX` makes /app world-readable
+# (executable where already executable, so directories stay traversable)
+# before ownership narrows to nightglass, so no host-side file mode can
+# reintroduce this.
 RUN useradd --create-home --uid 10001 nightglass \
+ && chmod -R a+rX /app \
  && chown -R nightglass:nightglass /app
 USER nightglass
 

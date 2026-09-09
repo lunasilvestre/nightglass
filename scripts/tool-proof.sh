@@ -36,12 +36,42 @@ QUESTION=${QUESTION:-"First, which Sentinel-1 scenes cover the area of interest 
 
 rule() { printf '\n%s%s%s\n%s\n' "$BOLD" "$1" "$RESET" "$(printf '%.0s─' $(seq 1 ${#1}))"; }
 
-if ! docker compose ps --status running --services 2>/dev/null | grep -qx mcp; then
+if [[ $(docker compose ps --status running --services 2>/dev/null | grep -cxE 'api|mcp') -ne 2 ]]; then
   echo "The enclave is not running. Try: make up" >&2
   exit 1
 fi
 
 export AOI
+
+# Preflight: the chaining question needs a catalogued scene, its detections
+# and AIS to correlate against, before the 14B model spends any time choosing
+# tools. Fail before that live call rather than after it, and name the one
+# target that fixes it. Silent on success: one docker compose exec carrying
+# every check rather than four.
+docker compose exec -T api python3 - <<'PY'
+import sys
+
+from nightglass.config import settings
+
+
+def fail(target: str, why: str) -> None:
+    print(f"{why} Fix: make {target}", file=sys.stderr)
+    sys.exit(1)
+
+
+import psycopg
+
+with psycopg.connect(settings.postgres_dsn) as conn, conn.cursor() as cur:
+    cur.execute("SELECT count(*) FROM stac.scenes")
+    if cur.fetchone()[0] == 0:
+        fail("dark-proof", "no scene is catalogued in PostGIS.")
+    cur.execute("SELECT count(*) FROM detect.detections")
+    if cur.fetchone()[0] == 0:
+        fail("dark-proof", "no detections are recorded in PostGIS.")
+    cur.execute("SELECT count(*) FROM ais.positions")
+    if cur.fetchone()[0] == 0:
+        fail("dark-proof", "no AIS positions are loaded.")
+PY
 
 rule "0. The enclave still has no way out"
 echo "${DIM}\$ docker compose exec mcp curl -m 5 https://example.com${RESET}"
