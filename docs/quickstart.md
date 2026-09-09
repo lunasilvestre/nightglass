@@ -79,7 +79,10 @@ because `draft_intrep`'s own `if narrative and chunks:` gate never fires with `q
 What that path does not demonstrate is the agent's own tool choice; for that, `make ask` still
 needs the model. Measured on the CPU profile of one 32-core host: `make ingest` took ~7m5s, one `make ask`
 call took ~6m45s (407 s), and the 14B model held ~13.0 GiB of RAM resident. `make up` echoes
-all three figures at the end when the CPU profile is active.
+all three figures at the end when the CPU profile is active. `make demo` itself ran end to end
+in 7m43s there, against 57 s on the GPU profile; `make dark-proof` took the same 4 minutes on
+both, because it never calls the model. The tails of those runs are in
+[evidence/proofs.md](evidence/proofs.md).
 
 ### `POSTGRES_PASSWORD`, once
 
