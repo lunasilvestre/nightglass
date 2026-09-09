@@ -1,42 +1,10 @@
-"""Global Fishing Watch detections as a reference layer — the fifth provisioning input.
-
-§3.1 is explicit that GFW's SAR detections are a layer to *cross-check against*,
-never our own correlation, and `ais.GFWDetectionSource` refuses to serve them to
-`ais_match` for that reason: they have already been matched against AIS upstream
-by someone else, and claiming that work as ours would unravel in a technical
-round. This module keeps that line by keeping the two questions apart.
-
-**What we may claim.** Do our detections and theirs find the same vessels? That
-is a geometric comparison between two independent detectors over the *identical*
-granule, and it is ours to state.
-
-**What we may only cite.** Each GFW detection carries a `matched` flag — their
-assessment against their AIS. Over Portugal we have no AIS at all, so that flag
-is information we cannot otherwise obtain, and it is reported with their name on
-it and their licence attached, never merged into a `Match`.
-
-The comparison is stronger than the spec assumed it would be. `4wings/report`
-returns gridded aggregates, which would only support "they saw N in this box and
-we saw M". But `4wings/tile/position` returns individual detections whose feature
-id is `<granule_id>;<lon>;<lat>` — and that granule is one of the ones
-`make fetch-granules` puts on disk. So
-this is detection-for-detection over the same pixels, not a comparison of counts.
-
-Two API details that cost time and are not documented anywhere:
-
-* **The tiles are MVT and there is no JSON.** `format=JSON` returns HTTP 422;
-  only `format=MVT` is served. Rather than take a protobuf dependency into the
-  fetcher image to decode geometry we do not need, the ids are read straight out
-  of the tile bytes — they are contiguous ASCII in the layer's value table, and
-  they already carry the position, so the geometry is redundant. That is a
-  deliberate shortcut and `_ids` says so.
-* **`filters[0]=matched='true'|'false'` works and partitions cleanly.** Verified
-  over Lisbon z9/242/196 on 2026-06-13: 13 detections unfiltered, 10 matched,
-  3 unmatched. Because both halves are fetched, their sum is a free consistency
-  check on every tile, and `fetch_reference` raises if it ever fails.
-
-ONLINE. This module runs on the provision network and never inside the enclave —
-the same posture as the model weights, the corpus and the coastline.
+"""Global Fishing Watch detections as a reference layer — the fifth provisioning
+input. We may claim a detector-vs-detector geometric comparison over the
+identical granule; we may only cite GFW's own `matched` flag, never merge it
+into a `Match` (see docs/detection.md). Two undocumented API quirks: the tiles
+are MVT only (`format=JSON` returns 422), and `filters[0]=matched='true'|'false'`
+partitions cleanly. ONLINE only, same posture as the other provisioning
+fetchers.
 """
 
 from __future__ import annotations

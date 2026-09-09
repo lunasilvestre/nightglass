@@ -1,60 +1,7 @@
-"""The vessel detector — §5's `detect_vessels`, over real pixels.
-
-This is our own detector, not a published detection layer. §3.1 is blunt about
-why that distinction matters: GFW's SAR detections are a *reference* layer to
-cross-check against, and presenting someone else's detections as your
-computation is the kind of claim that unravels when someone asks how it works.
-
-The method, in order, and the reason for each step:
-
-**VH, not VV** (§3.2). Cross-polarised backscatter from a rough sea surface is
-much weaker than co-polarised, while a ship's dihedral structure returns strongly
-in both. The contrast is what is being thresholded, so VH gives several dB of it
-for free. Every granule on disk is dual-pol VV+VH.
-
-**DN is not backscatter** (§3.2). The measurement raster holds digital numbers.
-``sigma0 = (DN² − noise) / A²`` with ``A`` the sigmaNought LUT and ``noise`` the
-thermal-noise LUT, both from the product's own annotation. Skipping the noise
-term leaves an across-track ramp in the background — VH over calm water sits
-close to the noise floor — and a threshold that does not know about it becomes
-quietly range-dependent, stricter in some parts of the swath than others.
-
-**Clutter is estimated per block, with targets censored.** A two-parameter CFAR
-needs a local mean and standard deviation of the sea. Estimating them over a
-32×32 block (320 m) is ~1000 samples, plenty — but a bright ship inside the block
-inflates its own background and can threshold itself away. So the statistics are
-computed twice, the second time excluding pixels far above the first estimate.
-
-**Land is masked twice, and it needs to be.** The first mask is derived from the
-scene itself (`land_mask`): land backscatters 10–15 dB above calm sea at VH, so
-thresholding a fine block mean finds it without any auxiliary data. That mask
-handles the mainland and keeps the clutter statistics clean.
-
-It cannot handle skerries, and not because it is badly tuned. It has to *open*
-the mask — erode then dilate — before buffering, or every bright vessel becomes
-its own island and the mask deletes the detections. Opening removes bright
-objects smaller than the structuring element, and a 100 m rock is exactly that.
-Run over the Kattegat with the data-derived mask alone, the detector drew a neat
-line of "vessels" down the Swedish archipelago off Gothenburg with almost no AIS
-anywhere near them. So the second mask is a real shoreline — GSHHG at full
-resolution, fetched at provisioning time and clipped to the AOI, applied in
-lon/lat after georeferencing. See `coastline.py`.
-
-**Connected components come from `rasterio.features.shapes`.** Vectorising the
-threshold mask gives polygons directly, so blob grouping, area and shape all come
-out of one call with no image-labelling dependency at all. Length and heading are
-then the major axis of each polygon's minimum rotated rectangle.
-
-**Position comes from a thin-plate-spline GCP transform.** Measured on granule
-S1D_20260717T052324: fitting an affine/polynomial through the 210 tie points
-leaves a mean 40 m and worst-case **185 m** error, because the geolocation grid
-of a 250 km swath is not a polynomial surface. TPS interpolates through the tie
-points exactly — residual 0.000 m — for about 15× the transform cost, which is
-0.15 s per 20,000 points and therefore irrelevant. At a 500 m match radius, 185 m
-of avoidable geolocation error is over a third of the budget.
-
-What this is not: an adaptive-sea-state CFAR, a wake analyser, or a classifier.
-§8's limitations list says "no CFAR tuning" and that stays true.
+"""The vessel detector — §5's `detect_vessels`, over real pixels. VH sigma0 from
+calibration + noise LUTs, a two-pass CFAR against block-censored clutter, dual
+land masking (data-derived plus GSHHG for skerries — see coastline.py), and TPS
+geolocation. Full reasoning and measured numbers: docs/detection.md.
 """
 
 from __future__ import annotations

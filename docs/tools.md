@@ -87,20 +87,12 @@ other end of it is not an air-gapped capability.
 
 ### The number the tools will not give you
 
-`CorrelationResult.rate_is_quotable` asks whether the AIS feed is complete enough to be a
-denominator. Over Denmark it is: DMA is ground truth, and the field is **true**.
-
-The report still refuses to state a dark-vessel rate, because that field only guards one side of
-the fraction. It says nothing about whether the things in the *numerator* are vessels — and 40%
-unmatched against a ~5% published base rate says they are substantially clutter and false alarms.
-A matcher being validated does not make a detector's precision validated.
-
-So there are two independent conditions, checked separately, and `DETECTOR_PRECISION_VALIDATED`
-in `tools/intrep.py` is a constant sitting at `False` with a test as its tripwire — flipping it
-takes a measurement, in the same commit. Three layers enforce the consequence, in increasing
-order of how much they can be trusted: the templated findings never compute a proportion, the
-generation prompt forbids one, and `scrub_rate_claims` removes any claim that states one anyway.
-Only the third is a check rather than a request.
+This system never states a dark-vessel rate: `rate_is_quotable` guards the feed and
+`DETECTOR_PRECISION_VALIDATED` guards the detector — a matcher being validated does not make a
+detector's precision validated. Full argument for both conditions and the three enforcement
+layers ending at `scrub_rate_claims`:
+[limitations](limitations.md#ais-coverage-and-what-a-rate-may-be-quoted-from); why the detector's
+precision specifically isn't validated: [limitations](limitations.md#the-detector).
 
 What comes out instead is a draft that carries its references and computes its own caveats:
 

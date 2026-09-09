@@ -1,38 +1,8 @@
-"""A real coastline, because a rock and a ship are the same object at 100 m.
-
-The detector's own land mask is derived from the scene (`detect.land_mask`), and
-for large land it works well. It cannot work for skerries, and the reason is
-structural rather than a tuning failure.
-
-That mask has to apply a morphological *opening* before it buffers the shore,
-otherwise every bright vessel becomes its own little island and the mask deletes
-exactly what the detector is looking for. Opening removes bright objects smaller
-than the structuring element. A 100 m rock is a bright object smaller than the
-structuring element. So the very step that stops ships masking themselves is the
-step that lets skerries through, and no threshold moves that trade-off — at VH,
-a wet rock and a hull are both compact, bright and small.
-
-It showed up exactly as theory predicts. Over the Kattegat the detections drew a
-neat line down the Swedish archipelago off Gothenburg, three to ten kilometres
-offshore, with almost no AIS anywhere near them. Every one of those would have
-been reported as a dark vessel, which is §3.2's "if your pipeline reports 40%
-dark, it's broken" arriving on schedule.
-
-So the fix is data the scene does not contain: **GSHHG**, Wessel & Smith's
-shoreline, at full resolution — roughly 100 m, which does resolve skerries.
-
-Two properties make this fit the architecture rather than fight it:
-
-**It is fetched at provisioning time, never by the enclave.** Weights, documents,
-granules and now the shoreline are the four things this system needs from the
-outside world, and all four are acquired by an explicit, separate, online step on
-the provision network. That the list is four items long rather than three is a
-better answer to "what does an air-gapped deployment actually have to ship with"
-than pretending it was three.
-
-**The enclave gets the AOI, not the planet.** The global archive is 149 MB;
-clipped to a configured AOI it is a few hundred kilobytes. Clipping happens
-online, so the offline bundle carries only what its AOIs need.
+"""A real coastline, because a rock and a ship are the same object at 100 m at VH —
+the detector's own data-derived land mask cannot separate them (opening the mask
+to save ships also lets skerries through; see docs/detection.md). GSHHG is
+fetched once at provisioning time, clipped per AOI, and never touched by the
+enclave itself.
 """
 
 from __future__ import annotations

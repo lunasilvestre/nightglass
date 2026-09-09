@@ -5,9 +5,13 @@
 ```
 docker-compose.yml        the enclave — one internal network, no egress
 .mcp.json                 the MCP attach, committed — clone and Claude Code has the tools
+.github/                  CI: lint, test, go, helm, bundle-proof, badge
 docker/                   application image (runtime · fetcher · dev), postgis init
   Dockerfile.bundler      golang:1.26-alpine -> scratch; the host never needs Go
+  compose.cpu.yml         overrides ollama's GPU reservation to !reset null; nothing else
 scripts/                  preflight, the seven proofs, the demo, its pacing and its check
+tests/                    pytest — unit tests at the seams, a real-product fixture, PostGIS tests
+  fixtures/               the Kattegat granule's own annotation, calibration and noise XML
 deploy/
   helm/nightglass/        the enclave as a chart; templates/networkpolicy.yaml is the point
   values-proof.yaml       what `make k8s-proof` overrides, and therefore does not exercise

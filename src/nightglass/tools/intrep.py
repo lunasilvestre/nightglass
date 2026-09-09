@@ -1,42 +1,8 @@
-"""`draft_intrep` (§5), and the guard that keeps it from quoting a rate.
-
-§7's argument is that output which cannot be traced cannot be graded, so it
-cannot enter the intelligence cycle however fluent it reads. This module is that
-argument applied to the one number in the project that is easiest to state and
-hardest to defend: the proportion of detections with no AIS correspondence.
-
-**Two independent things have to be true before that proportion may be quoted,
-and only one of them was guarded before M4.**
-
-*Source side.* `CorrelationResult.rate_is_quotable` already checks it: a rate is
-only meaningful against a feed that is complete. Over Denmark the DMA feed is
-ground truth; the self-collected aisstream feed was measured at ~1.4 messages
-per vessel per 4 minutes against ~40 expected, so treating it as ground truth
-would mark most of a harbour dark.
-
-*Precision side.* Nothing guarded it. A rate is a fraction, and the source side
-only validates the denominator's other half — it says nothing about whether the
-*numerator* is vessels. Over the Kattegat, with ground-truth AIS, 21 of 35
-detections match at a median 104 m and every AIS vessel over 200 m inside the
-footprint is recovered: the matcher is validated. But **40%** of detections are
-unmatched against a published base rate of ~5%, and that number went *up* when
-duplicate detections of the same hull were merged away — because it was the
-matched detections that were duplicated, not the unmatched ones. The excess is
-coastal clutter and isolated false alarms. The matcher being right does not make
-the detector's precision right, and a rate computed from a numerator of unknown
-composition is a number about the detector's false alarms wearing the clothes of
-a number about ships.
-
-So `DETECTOR_PRECISION_VALIDATED` is False, everywhere, today. The consequence
-is deliberately absolute: this system reports *"here are N detections I matched,
-with the space–time reasoning shown"*, never a dark-vessel rate. Three layers
-enforce it, in increasing order of how much they can be trusted, the same
-structure `rag/answer.py` uses for citations:
-
-1. The deterministic claims below state counts and never compute a proportion.
-2. The generation prompt says not to.
-3. :func:`scrub_rate_claims` removes any surviving claim that states one. Only
-   the third is a guarantee, and it is the reason the other two are not enough.
+"""The guard on `draft_intrep`'s one dangerous number: a dark-vessel rate needs
+both a complete AIS source (`rate_is_quotable`) and a validated detector
+(`DETECTOR_PRECISION_VALIDATED`, False today). Three enforcement layers, in
+increasing order of trust — the templated findings, the prompt, and
+`scrub_rate_claims` as the only real guarantee. Full argument: docs/limitations.md.
 """
 
 from __future__ import annotations

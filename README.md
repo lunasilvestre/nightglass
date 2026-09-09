@@ -1,17 +1,20 @@
 # NIGHTGLASS
 
+[![CI](https://github.com/lunasilvestre/nightglass/actions/workflows/ci.yml/badge.svg)](https://github.com/lunasilvestre/nightglass/actions/workflows/ci.yml)
+[![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lunasilvestre/nightglass/badges/coverage.json)](docs/testing.md)
+
 **Air-gapped SAR intelligence assistant.** Finds vessels in Sentinel-1 radar imagery, checks
 them against AIS, and drafts a cited intelligence report — with no route to the internet.
 
 The chat model, the embedding model and the vector store all run inside the enclave; nothing
 calls out.
 
+453 tests, 72.4 % line coverage measured on 2026-09-09; what the rest is and
+which proof answers it: [docs/testing.md](docs/testing.md).
+
 ![How NIGHTGLASS works — six steps from radar echo to a cited, human-approved report](docs/how-it-works.svg)
 
-> **A dark detection is a lead, not a conclusion.** A vessel with no AIS correspondence has
-> plenty of innocent explanations — satellite revisit gaps, terrestrial receiver limits,
-> transponder failure, low-power class B sets, vessels never required to carry AIS at all. The
-> system surfaces candidates. The analyst adjudicates.
+> **A dark detection is a lead, not a conclusion.** Full caveat: [limitations](docs/limitations.md).
 
 [demo](#the-demo) · [architecture](#architecture) · [quickstart](#quickstart) ·
 [results](#what-it-measures) · [the agent](#the-agent) · [proofs](#seven-proofs-that-run) ·
@@ -23,10 +26,8 @@ calls out.
 
 ![NIGHTGLASS end to end](docs/demo.gif)
 
-One command, and nothing in it is staged: the 14B model picks its own tools while the recording
-runs, and every number comes out of PostGIS and the SAR pixels as you watch. **57 s live.**
-
-**▶ [`docs/demo.mp4`](docs/demo.mp4)** — 4.0 MB, 49 s, play and pause. This is the one to watch.
+**57 s live**, nothing staged — **▶ [`docs/demo.mp4`](docs/demo.mp4)** (4.0 MB, 49 s) is the one
+to watch.
 
 **[How it was recorded, why it is retimed rather than re-run, and why it runs over two AOIs →](docs/demo.md)**
 
@@ -36,14 +37,10 @@ runs, and every number comes out of PostGIS and the SAR pixels as you watch. **5
 
 ![NIGHTGLASS architecture — the sealed enclave, the host beside it, and the profile-gated provision network](docs/architecture.svg)
 
-The boundary is one line of `docker-compose.yml`: the `enclave` network is declared
-`internal: true`, so Docker attaches no default route and installs no NAT rule. There is no
-egress path to misconfigure, and nothing to keep in sync as services are added.
-
-Two consequences follow, both deliberate. **No service publishes a port** — verified, a `-p`
-mapping on an internal network comes up fine and is simply dead. And **nothing inside can fetch
-its own inputs**: six profile-gated fetchers on a separate network do that, none of them running
-during operation, every byte checksummed against [`data/sources.yaml`](data/sources.yaml).
+One line of `docker-compose.yml` — the `enclave` network declared `internal: true` — is the whole
+boundary: no service publishes a port, and nothing inside can fetch its own inputs. Six
+profile-gated fetchers on a separate network do that instead, every byte checksummed against
+[`data/sources.yaml`](data/sources.yaml).
 
 **[The full argument, and where the credentials live →](docs/architecture.md)**
 
@@ -67,7 +64,10 @@ make demo                 # the recording above, live, ~60 s
 ```
 
 `make` with no target lists everything. Two fetches want a free account; nothing else reaches
-the network, ever.
+the network, ever. Every target that touches the detector — `dark-proof`, `intrep`, `demo`,
+`tool-proof`, `agent-proof`, `validate-shift` — needs `fetch-granules`, and therefore an
+Earthdata account, GPU or not: [what runs without one →](docs/quickstart.md#what-runs-without-an-account).
+No GPU? [the CPU profile](docs/quickstart.md#the-cpu-profile) removes just that requirement.
 
 **[The accounts, the checksums, and the bundle for a site with no route at all →](docs/quickstart.md)**
 
@@ -127,7 +127,7 @@ loudly if it cannot.
 | [what three more weeks would buy](docs/roadmap.md) | each item a named gap, not a feature wish |
 | [data sources and licences](docs/data-sources.md) | every external input, its use, and its terms |
 | [repository layout](docs/repository-layout.md) | what lives where |
-| [NOTES.md](docs/NOTES.md) | the running decision log, including what failed |
+| [NOTES.md](docs/NOTES.md) | the running decision log, including what failed — 2,665 lines, read the milestone you need |
 
 ---
 

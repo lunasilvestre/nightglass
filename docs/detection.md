@@ -15,11 +15,19 @@ dark          14          no AIS correspondence — 40.0%
 
 ### The detector is ours
 
-VH channel, read in place from the SAFE zip through `/vsizip/` — no extraction, so six granules
-cost 4.7 GB instead of 33 GB. `sigma0 = (DN² − noise) / A²` using the product's own calibration
-and thermal-noise LUTs, then a two-parameter CFAR against block-censored clutter statistics,
-connected components via `rasterio.features.shapes`, and positions from a **thin-plate-spline**
-GCP transform.
+VH channel, not VV: cross-polarised backscatter from a rough sea surface is much weaker than
+co-polarised, while a ship's dihedral structure returns strongly in both, so VH gives several dB
+of contrast for free before any threshold is computed. Read in place from the SAFE zip through
+`/vsizip/` — no extraction, so six granules cost 4.7 GB instead of 33 GB.
+`sigma0 = (DN² − noise) / A²` using the product's own calibration
+and thermal-noise LUTs — skipping the noise term leaves an across-track ramp in the background
+(VH over calm water sits close to the noise floor), which makes the threshold quietly
+range-dependent, stricter in some parts of the swath than others. Clutter statistics come from a
+two-parameter CFAR computed **twice** per block: a bright ship inside a block inflates its own
+mean and standard deviation and can threshold itself away, so the second pass excludes pixels far
+above the first estimate before computing the statistics it actually thresholds against.
+Connected components come from `rasterio.features.shapes`, and positions from a
+**thin-plate-spline** GCP transform.
 
 That last one is worth a number. Fitting a polynomial through the 210 tie points — the obvious
 thing — leaves a **mean 40 m and worst-case 185 m** geolocation error, because the geolocation
@@ -137,10 +145,9 @@ come from one measurement rather than two opinions. The matched/dark split it dr
 against the SQL join detection by detection, not just on the totals: the same fourteen ids, at the
 same positions.
 
-All of it is reproducible: `make dark-proof` writes `chips_top.png`, `chips_spread.png`,
-`overview.png`, `azimuth_correction.png`, `length_agreement.png` and `map_result.png` into
-`data/out/`, and the committed copies in [`docs/evidence/`](evidence) are byte-identical to what
-that run produces.
+All of it is reproducible: `make dark-proof` writes `chips_top.png`, `overview.png`,
+`azimuth_correction.png`, `length_agreement.png` and `map_result.png` into `data/out/`, and the
+committed copies in [`docs/evidence/`](evidence) are byte-identical to what that run produces.
 
 ### It generalises
 
@@ -169,7 +176,9 @@ because each GFW feature id carries its source granule, that granule is one `mak
 puts on disk.
 This is detection-for-detection over the same pixels, not "they saw N in this box and we saw M".
 `make fetch-gfw` (provision network, `GFW_TOKEN` from `~/.config/eo-credentials.env`), then
-`make gfw-compare`:
+`make gfw-compare`. Two undocumented API details: GFW's tiles are MVT only (`format=JSON` returns
+422), and `filters[0]=matched='true'|'false'` partitions cleanly — verified over Lisbon
+z9/242/196 on 2026-06-13, 13 unfiltered against 10 matched plus 3 unmatched.
 
 ```
 ours           71 detections   (nightglass-cfar)

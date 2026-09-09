@@ -10,6 +10,7 @@ your disk are the same claim.
 | Source | Use | Licence / terms |
 |---|---|---|
 | **Sentinel-1 GRD** (ESA, via ASF) | SAR imagery, both AOIs — `make fetch-granules` | Free and open. Requires a NASA Earthdata account and one-time ASF EULA acceptance. |
+| **Sentinel-1 GRD annotation fixture** (ESA, via ASF) | Test fixture — the manifest and VH annotation/calibration/noise XML of the Kattegat validation granule, ~812 KB, no pixels — [`tests/fixtures/`](../tests/fixtures/README.md) | Free and open, redistributable with attribution; same terms as the row above. |
 | **Danish Maritime Authority AIS** | Point-level ground truth, validation AOI — `make fetch-ais` | Public S3, no credentials. See attribution below. |
 | **eo-credentials** | `GFW_TOKEN` and friends live in `~/.config/eo-credentials.env`, never in this repo — [`scripts/load-env.sh`](../scripts/load-env.sh) loads it before `.env`, and a blank value in `.env` means *defer to central* rather than *override with empty*. | — |
 | **Global Fishing Watch** SAR detections | Independent reference layer, demo AOI | **CC BY-NC 4.0** — non-commercial, attribution required. |

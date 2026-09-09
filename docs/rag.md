@@ -5,10 +5,9 @@
 60 documents, 1,814 chunks, embedded locally with bge-m3 and stored in Qdrant. Reproduce with
 `make rag-proof`.
 
-> **Those are the manifest's numbers, and EUR-Lex is not currently answering.** The eight EU
-> legal instruments return `202` with an empty body, so a corpus fetched today indexes 52
-> documents and 953 chunks rather than 60 and 1,814. `make fetch-corpus` fails rather than
-> reporting that as a success, and re-running retries only the missing entries — see
+> **Those are the manifest's numbers.** EUR-Lex fronts its CELEX PDFs with a bot challenge since
+> 2026-09; the manifest now fetches the same bytes from the Publications Office instead, and a
+> corpus fetched today indexes 60 documents and 1,814 chunks — see
 > [limitations](limitations.md#the-document-layer).
 
 The argument for the whole document layer is one comparison. **Same model, same question, same
@@ -120,7 +119,10 @@ Documents are acquired exactly the way model weights are: a profile-gated servic
 network, invoked explicitly. `corpus-fetcher` is to documents what `model-puller` is to weights.
 The enclave then mounts the corpus **read-only** and cannot fetch, cannot write, and does not
 even carry a PDF parser — `pdftotext` is installed only in the `fetcher` image stage, because
-the enclave never sees a PDF, only normalised markdown.
+the enclave never sees a PDF, only normalised markdown. Poppler over a pure-Python parser is
+measured, not a preference: `pypdf` inserts spurious spaces inside words on the EUR-Lex Official
+Journal PDFs — `REGUL A TIONS`, `concer ning restr ictiv e measures` — **676 and 114 occurrences
+across two regulations, 0 with `pdftotext`.**
 
 Three independent barriers, and the error message names which one you hit:
 

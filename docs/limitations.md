@@ -23,6 +23,15 @@ Stated before being asked, because each one was tested rather than assumed.
   rather than leaving it to prose — `Match.source_is_ground_truth` travels with every match and
   `CorrelationResult.rate_is_quotable` is false unless all of them came from a ground-truth
   feed.
+- **That source check is only half of what a dark-vessel rate needs.** It validates the
+  denominator — a feed complete enough to call absence meaningful — but says nothing about the
+  numerator: whether the detections themselves are vessels. `DETECTOR_PRECISION_VALIDATED` in
+  `tools/intrep.py` sits at `False`, everywhere, today, with a test as its tripwire — flipping it
+  takes a measurement landing in the same commit, not a documentation edit. Why it is still
+  `False` is [the detector's precision, in detail](#the-detector). Both conditions are guarded
+  the same way, in three layers of increasing trust: the templated findings never compute a
+  proportion, the generation prompt forbids one, and `scrub_rate_claims` removes any surviving
+  claim that states one anyway. Only the third is a check rather than a request.
 - **Completeness over Portugal cannot be measured at all.** The absence of a DMA equivalent is
   simultaneously why a live feed is needed there and why there is no reference to validate it
   against. Denmark is the only AOI where this is observable, which is much of what the Danish
@@ -65,6 +74,17 @@ Stated before being asked, because each one was tested rather than assumed.
 - **Azimuth displacement is corrected; range migration and wake effects are not.** The
   correction uses one scene-mean platform speed and per-detection slant range and incidence; it
   does not model the vessel's own acceleration or a squinted geometry.
+- **The join has a speed ceiling built into its pre-filter, not just its correction.** Before the
+  azimuth shift is applied, the SQL discards any AIS vessel whose unshifted (true) position is
+  already more than the match radius plus 2 km from a detection — a cheap index-assisted bound
+  so the cross join never materialises the full cross product. That bounds the shift the join
+  can ever recover at 2 km, and the line-of-sight speed behind a 2 km shift depends on
+  incidence — `shift = (R/V) · v_los · sin θ`, so at R/V ≈ 115 s the recoverable speed is
+  `2000 / (115 · sin θ)`, roughly **24–35 m/s (47–68 kn)** across IW's ≈30–46° incidence range,
+  not a single number. A faster target's true position can already be outside the pre-filter
+  envelope even though its azimuth-shifted position would land on the detection, so it is
+  dropped before the shift is ever applied — silently unmatchable, reported dark,
+  indistinguishable from a vessel with no AIS at all.
 
 ## The document layer
 
@@ -81,17 +101,18 @@ Stated before being asked, because each one was tested rather than assumed.
   chunk which does not actually say what the claim says would survive verification. Guarding
   that needs an entailment check against the cited span, which is on the
   [three-weeks list](roadmap.md).
-- **The corpus is a manifest of URLs, so it is only as reproducible as its publishers — and one
-  of them has stopped answering.** Nothing real is vendored, for
-  [licence reasons](../corpus/README.md), which means every fetch depends on four publishers
-  still serving. EUR-Lex currently returns `202` with an empty body for every CELEX URL in the
-  manifest — the PDF endpoint and the HTML page alike, unchanged by a browser User-Agent — so
-  the eight EU legal instruments do not arrive, and two of the three documents this corpus calls
-  load-bearing go with them. A corpus fetched today is 52 documents and 953 chunks, not 60 and
-  1,814. `make fetch-corpus` exits non-zero rather than reporting a partial corpus as success,
-  and a re-run retries only what is missing. Stated for the same reason the DMA rolling window
-  is: a manifest invites the assumption that everything in it is retrievable today, and one
-  quarter of this one is not.
+- **The corpus is a manifest of URLs, so it is only as reproducible as its publishers.** Nothing
+  real is vendored, for [licence reasons](../corpus/README.md), which means every fetch depends
+  on four publishers still serving. EUR-Lex fronts its CELEX PDF endpoint with a bot challenge
+  since 2026-09 — `202` with an empty body, the PDF endpoint and the HTML page alike, unchanged
+  by a browser User-Agent — so the manifest now fetches the same eight EU legal instruments from
+  the Publications Office's Cellar resource-resolution endpoint instead; the bytes are the same
+  publisher's, sha256-identical to what eur-lex served before the challenge went up. A corpus
+  fetched today is 60 documents and 1,814 chunks. `make fetch-corpus` exits
+  non-zero rather than reporting a partial corpus as success, and a re-run retries only what is
+  missing. Stated for the same reason the DMA rolling window is: a manifest invites the
+  assumption that everything in it is retrievable today, and a publisher can change how it
+  answers without warning.
 
 ## The bundle, and the second boundary
 

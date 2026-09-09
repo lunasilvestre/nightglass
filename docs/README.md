@@ -10,11 +10,19 @@
 | [quickstart.md](quickstart.md) | clone to running enclave, and the two accounts it needs |
 | [demo.md](demo.md) | the 57-second run, why it is retimed and not re-run, and why two AOIs |
 | [repository-layout.md](repository-layout.md) | what lives where |
+| [quickstart.md#what-runs-without-an-account](quickstart.md#what-runs-without-an-account) | the table of exactly what a stranger with no Earthdata account can and cannot run |
 
 ### The proofs
 
+One of the seven runs in CI on every push — `make bundle-proof`, which needs nothing but a
+runner. The other six need the host: `make k8s-proof` is feasible on a runner too but not worth
+2.33 GB of images through a privileged k3s on every push, and the remaining five need the card,
+the granule and the licensed AIS day. [testing.md](testing.md) says which is which, and
+[evidence/proofs.md](evidence/proofs.md) is the dated, committed output of all seven.
+
 | page | what it proves |
 |---|---|
+| [testing.md](testing.md) | what CI actually proves, what the coverage number means, and where the rest is answered |
 | [air-gap.md](air-gap.md) | no route out, and the model answers anyway |
 | [rag.md](rag.md) | grounded vs ungrounded, the citation plumbing, and the refusal path |
 | [detection.md](detection.md) | the detector, the azimuth physics, the space–time join in SQL |
@@ -39,3 +47,8 @@
 `how-it-works.svg` · `architecture.svg` · `agent-graph.svg` · `results.svg` — the diagrams.
 `demo.cast` · `demo.mp4` · `demo.gif` — the walkthrough.
 [`evidence/`](evidence) — committed renders; the snapshot the numbers come from.
+`azimuth_correction.png`, `chips_top.png`, `length_agreement.png`, `map_result.png` and
+`overview.png` are written by `make dark-proof` over scene `…BC13` (the Kattegat validation
+granule) and are byte-identical to the 2026-09-09 run — see [the detector](detection.md#looking-at-it).
+`pt_chips.png` is separate: the Lisbon cross-check chip strip from
+[the generalisation section](detection.md#it-generalises).

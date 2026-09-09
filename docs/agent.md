@@ -65,25 +65,14 @@ The prompt layer and the schema layer both let it through. The check caught it.
 
 ### What the numbers do *not* say
 
-- **40% unmatched is not a 40% dark-vessel rate.** Published work on Danish waters finds ~5%
-  unmatched and ~0.4% genuinely dark after review. The residual here concentrates near shore and
-  is dominated by clutter and isolated false alarms this pipeline has not separated from vessels.
-- **That 40% used to read 25%, and the correction made it worse.** 45 matched detections over
-  the Kattegat resolved to **18 distinct MMSIs** — one ship accounting for six of them — so the
-  old denominator was padded with duplicates of vessels that *did* match. Merging them
-  (`DetectorConfig.merge_radius_m`, validated by AIS: zero clusters mix MMSIs at 100–300 m)
-  collapses matched detections 45 → 21 while unmatched barely moves, 15 → 14. Which is itself
-  informative: the unmatched residue is *isolated*, not fragments of real ships.
-- **No AIS is loaded for Portugal, and the tools refuse rather than guess.** `ais_match` raises
-  instead of returning 71 unmatched detections, and `correlate` returns the detections with the
-  verdict withheld. "We searched a feed and found nothing" and "there was no feed to search" are
-  different statements, and only the first one is a dark detection.
-- **Detected length is not a reliable size estimate.** Detecting at 8σ and measuring at the same
-  threshold gave lengths with **r = 0.015** against AIS — no relationship at all, because at
-  that threshold the blob tracks peak brightness rather than hull. Re-growing each detection at
-  2.5σ fixed the *bias* (median ratio 0.30× → **1.05×**) but the per-vessel scatter stays wide
-  (**r = 0.271**). The median is usable; an individual number is not — which is why the INTREP's
-  per-detection extents should be read as "something of roughly this size was here".
-- **`rate_is_quotable` is a field the code checks**, not a sentence someone has to remember. It
-  is true here only because every match came from DMA. It is also only *half* the check — see
-  below.
+This system never states a dark-vessel rate, and the released prose is assembled rather than
+generated for the same reason: `rate_is_quotable` is a field the code checks, true here only
+because every match came from DMA, and it is only half the check — full argument for that half
+and the enforcement layers: [limitations](limitations.md#ais-coverage-and-what-a-rate-may-be-quoted-from).
+The other half, why 40% unmatched is not a 40% dark-vessel rate and why that figure got worse
+when it was corrected: [limitations](limitations.md#the-detector).
+
+**No AIS is loaded for Portugal, and the tools refuse rather than guess.** `ais_match` raises
+instead of returning 71 unmatched detections, and `correlate` returns the detections with the
+verdict withheld. "We searched a feed and found nothing" and "there was no feed to search" are
+different statements, and only the first one is a dark detection.

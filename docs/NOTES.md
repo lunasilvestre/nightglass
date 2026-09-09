@@ -1027,7 +1027,7 @@ next reboot, re-pinning ~15 GB of the 3090. `make preflight` detects it. The enc
 both models (9.5 GB) — do not `make clean` casually.
 
 New at M3: `data/coastline/` holds three clipped GeoJSONs (~900 KB total) and `data/out/` holds
-the rendered evidence. Both are gitignored. `data/out` is `chmod 1777` because the enclave writes
+the rendered evidence. Both are gitignored. `data/out` is `chmod 0777` because the enclave writes
 there as uid 10001 while the host reads as 1000.
 
 ---

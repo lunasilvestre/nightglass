@@ -1,28 +1,8 @@
-"""Grounded generation, and the refusal path.
-
-The argument for this whole milestone is one transcript. Asked *"what is a dark
-vessel?"* with no retrieved context, qwen2.5:14b replies that it "isn't a
-standard term in common usage or in specific fields" and offers readings from
-literature, philosophy, art symbolism and retrocomputing. Fluent, confident, and
-containing no maritime meaning at all for the central term of this project.
-Nothing in the model's priors holds the operational sense, and nothing in its
-tone signals the gap.
-
-So generation here is constrained three ways, in increasing order of how much
-they can be trusted:
-
-1. **The prompt** tells the model to assert nothing absent from the context.
-   Cheap, and it does most of the work most of the time. It is also a request,
-   and a request can be declined.
-2. **A JSON schema** forces every claim to arrive attached to a list of chunk
-   IDs, so an unsourced assertion has nowhere to live in the output format.
-3. **A check after the fact** verifies every cited ID against what was actually
-   retrieved. Invented IDs are dropped; claims left with none are discarded;
-   an empty result is a refusal whatever the model said about itself.
-
-Only the third is a guarantee. §7's framing is that output which cannot be
-traced cannot be graded and therefore cannot enter the intelligence cycle — so
-the untraceable parts are removed here rather than published with a caveat.
+"""Grounded generation, and the refusal path. Ungrounded, qwen2.5:14b answers
+"dark vessel" with confident nonsense — nothing in its priors holds the
+operational sense. Three guards, increasing in trust: the prompt, a JSON schema
+forcing cited chunk IDs, and a post-hoc ID check that is the only real
+guarantee. Full transcript and argument: docs/rag.md.
 """
 
 from __future__ import annotations

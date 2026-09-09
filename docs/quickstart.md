@@ -5,7 +5,7 @@
 ```bash
 cp .env.example .env      # then set POSTGRES_PASSWORD
 make preflight            # checks docker, the nvidia runtime, VRAM, the AOI config
-make up                   # build + start, waits for every container healthy
+make up                   # build + start, waits for every container healthy — no GPU? see below
 make pull-models          # once, ~10 GB   ┐
 make fetch-corpus         # once, ~35 MB   │
 make fetch-granules       # once, 2.8 GB   ├ the only steps that touch the network
@@ -37,6 +37,70 @@ Every fetch is checksummed against [`data/sources.yaml`](../data/sources.yaml), 
 download, and re-runs as a no-op; `make fetch-granules VERIFY=1` re-hashes what is already on
 disk instead of trusting its size. The default set is 2.8 GB — everything the proofs and the
 demo need; `ALL=1` fetches the full manifest.
+
+### What runs without an account
+
+A stranger with neither account still reaches a real slice of the system, and it stops at a
+specific place: every target that touches the detector needs the 1.0 GB Kattegat granule, which
+only `make fetch-granules` supplies, and that needs the Earthdata account above whether or not
+there is a GPU behind it.
+
+| target | what it needs |
+|---|---|
+| `make preflight`, `make up` | nothing |
+| `make fetch-corpus`, `make ingest` | nothing |
+| `make docs-search`, `make ask-docs` | nothing |
+| `make rag-proof` | nothing — CPU profile: slow |
+| `make test`, `make lint` | nothing |
+| `make bundler-test`, `make bundle-proof` | nothing |
+| `make k8s-lint`, `make k8s-render`, `make k8s-proof` | nothing |
+| `make fetch-granules` | an Earthdata account, with the ASF EULA accepted |
+| `make fetch-gfw` | a GFW API token |
+| `make fetch-ais` | no credentials to download — but it slices the day against the granule's own acquisition time, so without a granule already on disk (`make fetch-granules` first) it downloads 890 MB and then exits 1 |
+| `make dark-proof`, `make intrep`, `make demo`, `make tool-proof`, `make agent-proof`, `make validate-shift` | the granule — so, transitively, the Earthdata account above |
+
+"Nothing" above means no account — `make ingest`, `make docs-search`, `make ask-docs` and
+`make rag-proof` still need `make pull-models` (~10 GB) first, same as every other target.
+
+The CPU profile below removes the GPU requirement from the last row. It does not remove the
+granule, so it serves someone who already has an Earthdata account and no GPU, not a stranger
+with neither.
+
+### The CPU profile
+
+Setting `COMPOSE_FILE=docker-compose.yml:docker/compose.cpu.yml` in `.env` removes the one GPU
+reservation on `ollama` — `docker-compose.yml`'s `deploy.resources.reservations.devices` block —
+and nothing else: same images, same steps, slower. The variable also appears, harmless, in every
+service's environment, because `.env` doubles as `env_file` for all of them.
+
+The deterministic path makes zero LLM calls: `make dark-proof` then `make intrep` produce a
+factual INTREP — findings only, no assessment section, `releasable=false` by construction,
+because `draft_intrep`'s own `if narrative and chunks:` gate never fires with `query` left empty.
+What that path does not demonstrate is the agent's own tool choice; for that, `make ask` still
+needs the model. Measured on the CPU profile of one 32-core host: `make ingest` took ~7m5s, one `make ask`
+call took ~6m45s (407 s), and the 14B model held ~13.0 GiB of RAM resident. `make up` echoes
+all three figures at the end when the CPU profile is active.
+
+### `POSTGRES_PASSWORD`, once
+
+It is read only at the database's first `initdb` — changing `.env` afterwards changes nothing
+already on disk. Resetting it means dropping the volume, not editing the file:
+`docker volume rm nightglass_postgis_data` (never `make clean`, which also removes the model and
+vector-store volumes).
+
+### One enclave per host
+
+`docker-compose.yml` hardcodes the project name and every container and volume name, so two
+checkouts on the same host share one enclave and one database rather than running side by side.
+
+### `make demo` checks its own inputs first
+
+Six provisioning steps — corpus, granules, AIS, coastline, GFW, models — have to be done before
+the recording itself. Before any live model call, the script now runs a preflight inside the
+`api` container: it checks the Qdrant collection holds points, that `stac.scenes`,
+`detect.detections` and `ais.positions` each have rows, and that `data/gfw/gfw_lisbon.json`
+exists. Any check that fails names the one `make` target that fixes it and exits before spending
+the ~90 s of live work; on a healthy enclave the preflight prints nothing.
 
 ### On this machine
 

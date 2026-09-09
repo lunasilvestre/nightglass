@@ -1,42 +1,8 @@
-"""§M5's graph: parse → plan → tools → correlate → draft_intrep → HUMAN_GATE → release.
-
-Two things make this a milestone rather than a wrapper, and both are decisions
-about where *not* to let the model act.
-
-**The gate is a real interrupt against a real checkpointer.** `interrupt()` halts
-the graph and the state is written to Postgres, so the run survives the process
-that started it: `nightglass-agent ask` exits at the gate, and
-`nightglass-agent approve <thread>` — a different container invocation, minutes
-later — resumes from the persisted state and finishes. A bare `input()` blocks a
-thread and loses everything if that thread dies; `MemorySaver` would satisfy the
-same API and keep the state inside the process that is supposed to have stopped.
-
-Worth being precise about what "inspectable" buys, because the obvious stronger
-claim is false. In plain SQL you get the run's existence, its thread, its
-position in the graph and which channels it has populated — `checkpoints` and
-`checkpoint_blobs` are ordinary tables. The *values* are msgpack, not JSON:
-LangGraph's serialiser encodes dicts as msgpack, so `convert_from(blob,'UTF8')`
-fails on them. Reading the payload means going through the checkpointer, which
-is what `nightglass-agent show` does. Checked, rather than assumed — an earlier
-version of this docstring claimed readable JSON.
-
-**The answer is assembled from the correlation, not from the model's
-recollection of it.** This is not caution for its own sake — it is the fix for a
-measured failure. In M4's proof run the model got every per-scene count right,
-listed thirty real detection ids, and still summarised them as "of the 60
-detections … 15 were not", conflating two scenes into one scene's framing. Nothing in a prompt fixes that
-reliably. So the spatial backbone is deterministic (`correlate` is called with
-the parsed bbox, whatever the model did in the `tools` node), the findings are
-templated from the `CorrelationResult` by `draft_intrep`, and the model's own
-prose is used only where it is genuinely generative and citation-checked.
-
-The `tools` node is deliberately *not* a second copy of M4's chaining proof.
-That the local model can chain three spatial tools unaided is already
-demonstrated by `make tool-proof`; re-proving it inside the graph would double
-the runtime to show the same thing. Here the model chooses what documentary
-context the report needs, which is a real choice with a real effect on the
-INTREP's assessment section, and it inherits M4's two measured guards: a
-max-iteration bound and a two-strike same-tool-same-arguments detector.
+"""parse → plan → tools → correlate → draft_intrep → HUMAN_GATE → release.
+The gate is a real interrupt() against a Postgres checkpointer, not MemorySaver
+or input() — so the run survives the process that started it. The INTREP is
+assembled from CorrelationResult, not the model's recollection of it, after M4
+measured the model conflating two scenes' counts. Full argument: docs/agent.md.
 """
 
 from __future__ import annotations

@@ -42,6 +42,25 @@ in the README was true and none of it could be regenerated anywhere but on one m
 sha256 for all eight external files — and the fetchers refuse anything that hashes differently.
 A number you cannot trace to a byte is a number you are asking to be taken on trust.
 
+### The image runs as uid 10001, and three symptoms trace back to it
+
+Nothing in the enclave needs root, and an enclave service running as root is the kind of detail
+that gets asked about — so `docker/Dockerfile` drops privileges to a `nightglass` user at
+uid 10001 once the image is built. That one decision produces three separate, unrelated-looking
+fixes elsewhere:
+
+- `entrypoint.sh` is copied in with `chmod 0755` set explicitly rather than `chmod +x`, because
+  `+x` only adds execute onto `COPY`'s preserved builder-umask mode — on a strict umask that
+  leaves the file `0711`, root-owned, so uid 10001 gets execute without read and the container
+  restart-loops on `entrypoint.sh: Permission denied`, exit 126.
+- The fetchers that write onto a host bind mount — corpus, granule, AIS, coastline and GFW —
+  override `user: "${HOST_UID:-1000}:${HOST_GID:-1000}"`, so a fetch lands owned by the invoking
+  user rather than by 10001; otherwise the corpus or the granules land unreadable and the next
+  step fails on a permission error two steps later, not at the fetch itself. `model-puller`
+  carries no such override: it writes into the `ollama_models` named volume, not a bind mount.
+- `data/out/` is `chmod 0777`, because the enclave writes the evidence renders there as
+  uid 10001 while the host reads them back as its own uid.
+
 ### Credentials follow the same split
 
 `GFW_TOKEN` and the Earthdata login are provider identities, so they live outside the repository
