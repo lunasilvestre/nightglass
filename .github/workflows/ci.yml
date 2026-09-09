@@ -27,8 +27,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - run: pip install "ruff>=0.6"
@@ -63,8 +63,8 @@ jobs:
       POSTGRES_PASSWORD: test
       POSTGRES_DB: nightglass
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           # 3.13 is what docker/Dockerfile builds on, so the suite runs against
           # the interpreter the enclave uses.
@@ -117,7 +117,7 @@ jobs:
           print(f"line coverage {pct:.2f} %", file=open("summary.txt", "w"))
           PY
           cat summary.txt >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         with:
           name: coverage-badge
@@ -128,7 +128,7 @@ jobs:
     # runner needs no Go — the same argument the host makes.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: make bundler-test
 
   helm:
@@ -139,7 +139,7 @@ jobs:
     # is the regression that would otherwise reach a cluster unnoticed.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: make k8s-lint
       - name: render the chart
         run: make k8s-render NS=nightglass > rendered.yaml
@@ -172,7 +172,7 @@ jobs:
     # restore into an empty daemon — is a property of the format, not its size.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: space for the proof's scratch tree
         run: |
           mkdir -p "${{ runner.temp }}/bundle-proof"
@@ -192,8 +192,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: coverage-badge
           path: badge
