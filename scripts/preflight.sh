@@ -48,8 +48,32 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 # --- GPU -------------------------------------------------------------------
+# COMPOSE_FILE is read from .env, the same file `docker compose` itself reads
+# it from -- not from the shell environment, which may not have sourced it.
+cpu_profile_active=0
+if [[ -f .env ]] && grep -qE '^COMPOSE_FILE=.*compose\.cpu\.yml' .env; then
+    cpu_profile_active=1
+fi
+
 if docker info 2>/dev/null | grep -q 'Runtimes:.*nvidia'; then
     ok "nvidia container runtime registered"
+elif (( cpu_profile_active )); then
+    # Not the generic nvidia-ctk suggestion: COMPOSE_FILE says this host is on
+    # the CPU profile on purpose (an Earthdata account, no GPU -- see
+    # docs/quickstart.md), so telling the reader to configure a GPU runtime
+    # would be pointing at the wrong fix.
+    note "CPU profile active (COMPOSE_FILE in .env) — ollama will run on CPU.
+      Measured on one host: qwen2.5:14b-instruct-q4_K_M + bge-m3 hold ~13.0 GiB
+      resident once both are loaded (docker stats nightglass-ollama); 'make
+      ingest' took ~7m5s and one 'make ask' call ~6m45s there, against seconds
+      to low minutes on the nvidia profile. Model steps will be slow; that is
+      the profile working as intended, not a hang."
+    avail_mib=$(free -m 2>/dev/null | awk '/^Mem:/{print $7}')
+    # ~13.0 GiB resident plus headroom for postgis/qdrant/api and the OS.
+    need_mib=16000
+    if [[ -n "${avail_mib:-}" ]] && (( avail_mib < need_mib )); then
+        note "only ${avail_mib} MiB available RAM — the CPU-resident models above need ~${need_mib} MiB"
+    fi
 else
     note "nvidia runtime not registered — ollama will fall back to CPU and a 14B
       model will be unusably slow. Fix: nvidia-ctk runtime configure --runtime=docker"
@@ -121,6 +145,18 @@ if [[ -f .env ]]; then
     ok ".env present"
     if grep -q '^POSTGRES_PASSWORD=change_me_locally$' .env; then
         note ".env still has the placeholder POSTGRES_PASSWORD"
+    fi
+    # POSTGRES_PASSWORD only takes effect at initdb, i.e. the first time
+    # nightglass_postgis_data is created empty. Editing .env after that point
+    # changes what every other service tries to authenticate with, not what
+    # postgres actually accepts — and the fix is never `make clean` (it also
+    # deletes the granules and models, which need Earthdata and 10+ GB to
+    # replace).
+    if docker volume inspect nightglass_postgis_data >/dev/null 2>&1; then
+        note "nightglass_postgis_data already exists — POSTGRES_PASSWORD in .env
+      only took effect the FIRST time this volume was created (initdb). Changing
+      it now will not change what postgres accepts. To reset it:
+      docker volume rm nightglass_postgis_data   (never 'make clean')"
     fi
     aoi=$(sed -nE 's/^NIGHTGLASS_AOI=(.*)$/\1/p' .env | tail -1)
     key=$(echo "${aoi:-}" | tr '[:lower:]' '[:upper:]')

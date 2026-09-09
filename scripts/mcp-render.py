@@ -89,6 +89,32 @@ def render_correlation(sc):
         print(f"        {first_dark['provenance']['note'][:150]}…")
 
 
+def render_intrep(sc):
+    # `draft_intrep` over MCP is called with no `query` (see `make intrep`), so
+    # `chunks` is always empty and the model is never invoked -- the same
+    # missing-inputs case `render_correlation` handles applies here first.
+    if "claims" not in sc:
+        print(
+            "  draft_intrep        no report to render.\n"
+            "                      The correlation behind it has no scenes or\n"
+            "                      detections yet. See `make dark-proof`."
+        )
+        return
+    marking = sc["classification"]
+    if not sc.get("releasable", False):
+        marking += " // DRAFT — NOT RELEASABLE"
+    print(f"  {sc['title']}")
+    print(f"  {marking}")
+    print(f"  claims              {len(sc['claims'])}"
+          f"  (unsupported: {sum(1 for c in sc['claims'] if not (c['scene_ids'] or c['detection_ids'] or c['chunk_ids']))})")
+    for c in sc["claims"]:
+        print(f"    - {c['text']}")
+    if sc.get("caveats"):
+        print(f"  caveats             {len(sc['caveats'])}")
+        for cv in sc["caveats"]:
+            print(f"    ! {cv}")
+
+
 def main() -> int:
     """Render, and fail loudly if there was nothing to render.
 
@@ -126,6 +152,10 @@ def main() -> int:
             elif m.get("id") == 3:
                 render_correlation(sc)
                 rendered += 1
+        elif mode == "intrep" and m.get("id") == 2:
+            sc = (m.get("result") or {}).get("structuredContent") or {}
+            render_intrep(sc)
+            rendered += 1
 
     if failed or not rendered:
         if not rendered and not failed:

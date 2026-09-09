@@ -58,6 +58,13 @@ up: preflight  ## build and start the enclave, wait for healthy
 	@echo "  proof:  make air-gap-proof  rag-proof  dark-proof  tool-proof  agent-proof"
 	@echo "          make bundle-proof  k8s-proof"
 	@echo "  demo:   make demo         end to end, both AOIs, ~60 s"
+	@if grep -qE '^COMPOSE_FILE=.*compose\.cpu\.yml' .env 2>/dev/null; then \
+	  echo; \
+	  echo "CPU profile active (docker/compose.cpu.yml) — ollama has no GPU reservation."; \
+	  echo "  Measured on one host: 'make ingest' ~7m5s, one 'make ask' call ~6m45s,"; \
+	  echo "  ~13.0 GiB resident once qwen2.5:14b-instruct-q4_K_M + bge-m3 are loaded"; \
+	  echo "  (docker stats nightglass-ollama). Model steps are slow on purpose here."; \
+	fi
 
 .PHONY: down
 down:  ## stop the enclave, keep volumes
@@ -308,6 +315,33 @@ chain:  ## let the local model pick and chain tools. make chain Q="Were there an
 .PHONY: mcp-tools
 mcp-tools:  ## list the MCP tools over the stdio transport Claude Desktop uses
 	@scripts/mcp-stdio.sh tools/list
+
+# Kattegat, granule BC13, its acquisition day -- the scene dark-proof loads.
+# scene_id is pinned rather than left to correlate's own "most recent scene in
+# the window" default: the day holds a second granule (34CE, the ascending
+# pass 11 minutes later), and without pinning this reports over whichever of
+# the two was catalogued to look "most recent", which need not be the one
+# `make dark` and `make dark-proof` report over.
+INTREP_BBOX     ?= 10.5,55.5,12.5,57.5
+INTREP_START    ?= 2026-07-17T00:00:00Z
+INTREP_END      ?= 2026-07-18T00:00:00Z
+INTREP_SCENE_ID ?= S1D_IW_GRDH_1SDV_20260717T052324_20260717T052349_003709_006A36_BC13
+
+.PHONY: intrep
+# The MCP `draft_intrep` is called with NO `query`, so `doc_search` is never
+# invoked, `context_chunks` is `[]`, and `if narrative and chunks:` in
+# src/nightglass/tools/intrep.py -- the line this target's "zero LLM calls"
+# claim depends on -- is false. If that gate is ever changed to run without
+# chunks, this target starts calling ollama and this comment is the only
+# place saying it must not.
+intrep:  ## deterministic INTREP over the validation scene (M4+M5), zero LLM calls
+	@echo ">> Factual claims only -- no document assessment section, because no"
+	@echo ">> query is passed. releasable=false by construction: only the M5"
+	@echo ">> human gate (make approve) may flip it, and this target never reaches it."
+	@AOI=$(or $(AGENT_AOI),kattegat) scripts/mcp-stdio.sh draft_intrep \
+	  '{"bbox":[$(INTREP_BBOX)],"start":"$(INTREP_START)","end":"$(INTREP_END)",'\
+'"scene_id":"$(INTREP_SCENE_ID)"}' \
+	  | scripts/mcp-render.py intrep
 
 .PHONY: tool-proof
 tool-proof:  ## end to end: MCP over stdio, the local model chaining, the INTREP guard

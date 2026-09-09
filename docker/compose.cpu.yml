@@ -1,0 +1,20 @@
+# CPU override for the enclave's own ollama -- for someone with an Earthdata
+# account and no GPU, not for someone with neither (see docs/quickstart.md's
+# accountless-target table: every detector target still needs the granule).
+#
+# Compose merges override files field-by-field, and a plain reservations list
+# does not merge to empty -- it merges to the union, so a `devices: []` here
+# would still leave the base file's nvidia entry standing. `!reset null`
+# removes the whole `deploy` key instead of merging into it, which is the only
+# way to make `docker inspect` report no device request at all (verified).
+#
+#   COMPOSE_FILE=docker-compose.yml:docker/compose.cpu.yml
+#
+# in .env, then `docker compose up -d --wait` (recreates ollama without a GPU
+# reservation; every other service is untouched). Nothing else in this file:
+# the CPU path runs the identical image, entrypoint and healthcheck, just
+# slower, because "the CPU profile changes what runs" is exactly the claim
+# this project does not get to make.
+services:
+  ollama:
+    deploy: !reset null
